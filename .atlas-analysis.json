@@ -1,0 +1,99 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "SigmaEpsilon Solid Fourier",
+  "projectDescription": "Semi-analytic Fourier solutions for beam and plate bending problems with simply-supported boundary conditions.",
+  "theme": "aspen",
+  "primaryColor": "#2563eb",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "installation", "quickstart"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/overview",
+              "concepts/beam-models",
+              "concepts/plate-models",
+              "concepts/loads"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/beam-analysis",
+              "guides/plate-analysis",
+              "guides/load-definition",
+              "guides/postprocessing"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/beam-influence",
+              "examples/plate-concentrated",
+              "examples/mindlin-kirchhoff",
+              "examples/visualization"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/navier-beam",
+              "api/navier-plate"
+            ]
+          },
+          {
+            "group": "Load Classes",
+            "pages": [
+              "api/load-group",
+              "api/point-load",
+              "api/line-load",
+              "api/rectangle-load",
+              "api/disk-load"
+            ]
+          },
+          {
+            "group": "Result Classes",
+            "pages": [
+              "api/beam-result",
+              "api/plate-result"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Semi-analytic solutions for Euler-Bernoulli and Timoshenko beams",
+    "Semi-analytic solutions for Kirchhoff-Love and Uflyand-Mindlin plates",
+    "Support for point, line, rectangular, and disk loads",
+    "Fast computation using parallel, performant code",
+    "Integration with NumPy, SciPy, and xarray",
+    "Monte-Carlo based coefficient determination for arbitrary loads"
+  ],
+  "publicApiSurface": [
+    "NavierBeam",
+    "NavierPlate",
+    "LoadGroup",
+    "LoadCase",
+    "PointLoad",
+    "LineLoad",
+    "RectangleLoad",
+    "DiskLoad",
+    "BeamLoadCaseResultLinStat",
+    "PlateLoadCaseResultLinStat",
+    "linear_static_analysis"
+  ]
+}
