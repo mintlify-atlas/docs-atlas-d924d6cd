@@ -1,0 +1,338 @@
+---
+title: Load Definition
+description: How to create and organize loads for structural analysis
+---
+
+## Overview
+
+The SigmaEpsilon Solid Fourier library provides several load types for beams and plates. Loads can be organized into groups and cases for managing complex loading scenarios.
+
+## Load Types
+
+### PointLoad
+
+Concentrated loads applied at a single point.
+
+**For Beams:**
+```python
+from sigmaepsilon.solid.fourier import PointLoad
+
+# Syntax: PointLoad(position, [Force, Moment])
+load = PointLoad(5.0, [100.0, 0.0])  # 100N force at x=5.0
+load = PointLoad(5.0, [0.0, 50.0])   # 50Nm moment at x=5.0
+load = PointLoad(5.0, [100.0, 50.0]) # Both force and moment
+```
+
+**For Plates:**
+```python
+import numpy as np
+
+# Syntax: PointLoad([x, y], [Force_Z, Moment_X, Moment_Y])
+position = np.array([300.0, 400.0])
+value = np.array([-100.0, 0.0, 0.0])  # 100N downward force
+
+load = PointLoad(position, value)
+
+# Alternative: using lists
+load = PointLoad([300.0, 400.0], [-100.0, 0.0, 0.0])
+```
+
+### LineLoad
+
+Loads distributed along a line segment.
+
+**For Beams (constant intensity):**
+```python
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Syntax: LineLoad([start, end], [Force_intensity, Moment_intensity])
+load = LineLoad([2.0, 8.0], [10.0, 0.0])  # 10 N/m from x=2 to x=8
+```
+
+**For Beams (variable intensity using Monte Carlo integration):**
+```python
+# Define load intensity as a function
+def load_function(x):
+    return 10.0 * np.sin(np.pi * x / length)  # Sinusoidal load
+
+load = LineLoad(
+    [0.0, length], 
+    [load_function, 0.0],
+    num_mc=1000  # Number of sampling points
+)
+```
+
+**For Plates:**
+```python
+# Syntax: LineLoad([[x1, y1], [x2, y2]], [Force_Z, Moment_X, Moment_Y])
+start_point = [0.0, 400.0]
+end_point = [600.0, 400.0]
+intensity = [5.0, 0.0, 0.0]  # 5 N/m along the line
+
+load = LineLoad([start_point, end_point], intensity)
+```
+
+### RectangleLoad
+
+Loads distributed over a rectangular region (plates only).
+
+**Constant intensity:**
+```python
+from sigmaepsilon.solid.fourier import RectangleLoad
+
+# Syntax: RectangleLoad([[x1, y1], [x2, y2]], [Force_Z, Moment_X, Moment_Y])
+# Define rectangle by lower-left and upper-right corners
+lower_left = [100.0, 200.0]
+upper_right = [500.0, 600.0]
+intensity = [-0.1, 0.0, 0.0]  # 0.1 N/m² downward
+
+load = RectangleLoad([lower_left, upper_right], intensity)
+```
+
+**Full plate uniform load:**
+```python
+# Cover entire plate
+length_X, length_Y = 600.0, 800.0
+load = RectangleLoad(
+    [[0, 0], [length_X, length_Y]], 
+    [-0.1, 0, 0]
+)
+```
+
+**Variable intensity using symbolic expressions:**
+```python
+# Define spatially varying load
+def pressure_function(x, y):
+    return -10.0 * np.sin(np.pi * x / length_X) * np.sin(np.pi * y / length_Y)
+
+load = RectangleLoad(
+    [[0, 0], [length_X, length_Y]], 
+    [pressure_function, 0, 0],
+    num_mc=2000  # Monte Carlo sampling points
+)
+```
+
+### DiskLoad
+
+Loads distributed over a circular region (plates only).
+
+```python
+from sigmaepsilon.solid.fourier import DiskLoad
+
+# Syntax: DiskLoad(([center_x, center_y], radius), [Force_Z, Moment_X, Moment_Y])
+center = (300.0, 400.0)
+radius = 50.0
+intensity = [-1.0, 0.0, 0.0]  # 1 N/m² downward
+
+load = DiskLoad((center, radius), intensity)
+```
+
+## Organizing Loads
+
+### LoadGroup
+
+Organize loads into groups and cases for complex analyses.
+
+**Single load case:**
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, PointLoad
+
+loads = LoadGroup(
+    LC1=PointLoad(5.0, [100.0, 0.0])
+)
+```
+
+**Multiple load cases:**
+```python
+loads = LoadGroup(
+    DeadLoad=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.05, 0, 0]),
+    LiveLoad=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.15, 0, 0]),
+    PointLoad=PointLoad([length_X/2, length_Y/2], [-500.0, 0.0, 0.0])
+)
+```
+
+**Nested load groups:**
+```python
+loads = LoadGroup(
+    Permanent=LoadGroup(
+        SelfWeight=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.05, 0, 0]),
+        Equipment=PointLoad([300.0, 400.0], [-200.0, 0.0, 0.0])
+    ),
+    Variable=LoadGroup(
+        Snow=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.1, 0, 0]),
+        Wind=LineLoad([[0, 0], [0, length_Y]], [5.0, 0.0, 0.0])
+    )
+)
+```
+
+**Accessing nested loads:**
+```python
+# Access specific load case
+load = loads['Permanent', 'SelfWeight']
+
+# Lock to prevent accidental modification
+loads.lock()
+```
+
+## Multiple Load Cases Example
+
+Analyze a beam under different loading scenarios:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, LoadGroup, PointLoad, LineLoad
+import numpy as np
+
+# Create beam
+beam_length = 10.0
+beam = NavierBeam(beam_length, 100, EI=2000.0, GA=1500.0)
+
+# Define multiple load cases
+loads = LoadGroup(
+    # Case 1: Point load at center
+    CenterLoad=PointLoad(beam_length / 2, [100.0, 0.0]),
+    
+    # Case 2: Point load at 1/3 span
+    ThirdLoad=PointLoad(beam_length / 3, [100.0, 0.0]),
+    
+    # Case 3: Uniformly distributed load
+    UniformLoad=LineLoad([0.0, beam_length], [10.0, 0.0]),
+    
+    # Case 4: Combined loading
+    Combined=LoadGroup(
+        Point=PointLoad(beam_length / 2, [50.0, 0.0]),
+        Distributed=LineLoad([0.0, beam_length], [5.0, 0.0])
+    )
+)
+
+loads.lock()
+
+# Evaluation points
+points = np.linspace(0, beam_length, 50)
+
+# Solve all load cases at once
+results = beam.linear_static_analysis(points, loads)
+
+# Access results for each case
+center_deflection = results['CenterLoad'].to_xarray()
+third_deflection = results['ThirdLoad'].to_xarray()
+uniform_deflection = results['UniformLoad'].to_xarray()
+combined_deflection = results['Combined'].to_xarray()
+```
+
+## Load Combinations
+
+For load combinations (factored loads), analyze each case separately and combine results:
+
+```python
+# Define base load cases
+loads = LoadGroup(
+    Dead=RectangleLoad([[0, 0], [lx, ly]], [-0.05, 0, 0]),
+    Live=RectangleLoad([[0, 0], [lx, ly]], [-0.15, 0, 0]),
+    Wind=LineLoad([[0, 0], [0, ly]], [2.0, 0.0, 0.0])
+)
+
+# Solve for each case
+results = plate.linear_static_analysis(points, loads)
+
+# Combine results with load factors (e.g., 1.2D + 1.6L)
+dead_results = results['Dead'].values
+live_results = results['Live'].values
+combined = 1.2 * dead_results + 1.6 * live_results
+
+# Ultimate load combination: 1.2D + 1.6L + 0.5W
+wind_results = results['Wind'].values
+ultimate = 1.2 * dead_results + 1.6 * live_results + 0.5 * wind_results
+```
+
+## Sign Conventions
+
+<Note>
+  For detailed sign conventions, refer to the theory guide in the documentation.
+</Note>
+
+**For Beams:**
+- Positive force: Downward direction (+Y)
+- Positive moment: Counterclockwise rotation (+Z axis)
+
+**For Plates:**
+- Positive force: Downward direction (+Z)
+- Positive moment X: About X axis (counterclockwise)
+- Positive moment Y: About Y axis (counterclockwise)
+
+## Advanced: Monte Carlo Integration
+
+For loads with spatially varying intensity, the library uses Monte Carlo integration:
+
+```python
+from sigmaepsilon.solid.fourier.config import Config
+
+# Set global default
+Config.NUM_MC_SAMPLES_PLATE = 2000
+
+# Or specify per load
+load = RectangleLoad(
+    domain=[[0, 0], [lx, ly]],
+    value=[lambda x, y: -10*np.sin(np.pi*x/lx), 0, 0],
+    num_mc=3000  # Override global setting
+)
+```
+
+## Common Patterns
+
+### Iterating over load cases
+
+```python
+# Iterate over all cases
+for case_name, case_result in results.items():
+    max_deflection = case_result.values[:, 0].max()
+    print(f"{case_name}: {max_deflection:.4f}")
+
+# Get all load cases
+for load_case in loads.cases():
+    print(f"Load case: {load_case}")
+```
+
+### Creating parametric load studies
+
+```python
+# Study effect of load position
+load_positions = np.linspace(0, beam_length, 20)
+max_moments = []
+
+for pos in load_positions:
+    loads = LoadGroup(LC=PointLoad(pos, [100.0, 0.0]))
+    results = beam.linear_static_analysis(points, loads)
+    max_moment = np.abs(results['LC'].values[:, 4]).max()
+    max_moments.append(max_moment)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Load naming conventions">
+    Use descriptive names for load cases:
+    - `DeadLoad`, `LiveLoad`, `SnowLoad`, `WindLoad` for building loads
+    - `LC1`, `LC2`, `LC3` for generic cases
+    - Nest related loads in groups for organization
+  </Accordion>
+
+  <Accordion title="Lock your load groups">
+    Always lock load groups before analysis to prevent accidental modification:
+    ```python
+    loads.lock()
+    ```
+  </Accordion>
+
+  <Accordion title="Monte Carlo sampling">
+    For variable loads:
+    - Start with 1000-2000 samples
+    - Increase if results don't converge
+    - Higher samples = better accuracy but slower computation
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- Learn how to solve problems in [Beam Analysis](/guides/beam-analysis)
+- Learn how to solve problems in [Plate Analysis](/guides/plate-analysis)
+- Explore [Postprocessing](/guides/postprocessing) techniques for analyzing results

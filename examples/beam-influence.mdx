@@ -1,0 +1,123 @@
+---
+title: Beam Influence Diagrams
+description: Calculate and plot influence diagrams for Timoshenko beams using the Navier solution method
+---
+
+# Beam Influence Diagrams
+
+This example demonstrates how to calculate influence diagrams for a Timoshenko beam with a constant rectangular cross-section. Influence diagrams show how different quantities (deflection, rotation, shear force, bending moment, etc.) vary at a specific cross-section as a unit load moves along the beam.
+
+## Setting Up the Model
+
+First, we define the beam geometry, material properties, and create a `NavierBeam` instance:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam
+
+# geometry
+beam_length = 1000.0
+width, height = 20.0, 80.0  # rectangular cross-section
+
+# material properties
+young_modulus, poisson_ratio = 210000.0, 0.25  # material
+area = width * height
+shear_modulus = young_modulus / (2 * (1 + poisson_ratio))
+
+# stiffness properties
+inertia = width * height**3 / 12
+bending_stiffness = young_modulus * inertia
+shear_correction_factor = 5 / 6
+shear_stiffness = shear_modulus * area * shear_correction_factor
+
+# solution parameters
+number_of_modes = 100
+
+beam = NavierBeam(
+    beam_length, number_of_modes, EI=bending_stiffness, GA=shear_stiffness
+)
+```
+
+## Calculating Influence Lines
+
+To generate influence diagrams, we move a unit point load along the beam and solve for the response at a fixed evaluation point. There are two approaches:
+
+1. Create multiple load cases in a `LoadGroup` and solve once
+2. Call the solver multiple times for each load position
+
+We'll use the second approach, solving for each load position individually:
+
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, PointLoad
+import numpy as np
+
+# the location of the cross-section of which the influence diagrams are calculated
+evaluation_point = np.array([beam_length/3])
+
+number_of_loads = 100
+solutions = []
+load_positions = []
+for i in range(number_of_loads):
+    load_position = beam_length *  i / (number_of_loads - 1)
+    beam_loads = LoadGroup(LC=PointLoad(load_position, [1.0, 0.0]))
+    solution = beam.linear_static_analysis(evaluation_point, beam_loads)
+    solutions.append(solution["LC"].to_xarray())
+    load_positions.append(load_position)
+```
+
+The `evaluation_point` is set to one-third of the beam length. For each load position, we:
+- Create a unit vertical point load (magnitude 1.0 in the vertical direction)
+- Solve the beam deflection problem
+- Store the solution at the evaluation point
+
+## Plotting with Matplotlib
+
+Now we can plot the influence diagrams for all six response components:
+
+```python
+from sigmaepsilon.solid.fourier import BeamLoadCaseResultLinStat
+import matplotlib.pyplot as plt
+
+fig, axs = plt.subplots(6, 1, figsize=(4, 6), dpi=200, sharex=True)
+
+labels = [r"$v$", r"$\theta$", r"$\kappa$", r"$\gamma$", r"$M$", r"$V$"]
+colors = ["b", "b", "g", "g", "r", "r"]
+components = BeamLoadCaseResultLinStat.components
+
+plt.rcParams.update(
+    {
+        "text.usetex": True,
+        "font.family": "sans-serif",
+    }
+)
+for i in range(6):
+    component = components[i]
+    data = [float(s.loc[0, component].values) for s in solutions]
+    axs[i].plot(load_positions, data, colors[i])
+    axs[i].set_xlabel("$x$")
+    axs[i].set_ylabel(labels[i])
+    axs[i].axvline(x=evaluation_point, color='black', linestyle='dashed', lw=0.5)
+
+fig.suptitle("Influence diagrams for a unit point load")
+plt.subplots_adjust(hspace=0.1)
+fig.tight_layout()
+```
+
+The plot shows six subplots with:
+- **v**: Vertical deflection (blue)
+- **θ**: Rotation (blue)
+- **κ**: Curvature (green)
+- **γ**: Shear strain (green)
+- **M**: Bending moment (red)
+- **V**: Shear force (red)
+
+The vertical dashed line indicates the evaluation point location. Each curve shows how that quantity changes at the evaluation point as the unit load moves from left to right along the beam.
+
+## Result Interpretation
+
+Influence diagrams are useful for:
+- Understanding structural behavior under moving loads
+- Finding maximum response values for design
+- Determining critical load positions
+- Analyzing bridge and crane structures
+
+For the Timoshenko beam model, shear deformation effects are included through the shear stiffness `GA`, making it more accurate than Euler-Bernoulli theory for stocky beams with low length-to-height ratios.

@@ -1,0 +1,193 @@
+---
+title: Installation
+description: Install SigmaEpsilon Solid Fourier and its dependencies
+---
+
+# Installation
+
+Install SigmaEpsilon Solid Fourier using pip from PyPI. The library supports Python 3.10, 3.11, and 3.12.
+
+## Requirements
+
+<Info>
+**Python Version**: 3.10, 3.11, or 3.12
+
+**Operating System**: OS Independent (Linux, Windows, macOS)
+</Info>
+
+## Basic Installation
+
+Install the core library with all required dependencies:
+
+```bash
+pip install sigmaepsilon.solid.fourier
+```
+
+This installs the library along with its core dependencies:
+
+- **sigmaepsilon-deepdict** (≥2.0.0): Deep dictionary utilities
+- **sigmaepsilon-mesh** (≥3.0.2): Mesh data structures and operations
+- **sigmaepsilon-solid-material** (≥1.0.2): Material property definitions
+
+## Verify Installation
+
+Verify the installation by importing the library and checking the version:
+
+```python
+import sigmaepsilon.solid.fourier as ssf
+
+print(f"Version: {ssf.__version__}")
+print(f"Description: {ssf.__description__}")
+```
+
+You should see output similar to:
+
+```
+Version: 2.1.3
+Description: Fourier solutions of some plate and beam bending problems in Python
+```
+
+## Optional Dependencies
+
+Depending on your use case, you may want to install additional packages:
+
+### For Visualization
+
+Install Matplotlib for plotting results:
+
+```bash
+pip install matplotlib
+```
+
+<Tip>
+The library includes a gallery of Matplotlib examples for all problem types. Install Matplotlib to visualize deflections, moments, and stress distributions.
+</Tip>
+
+### For Development
+
+If you're contributing to the library or running examples, install the development dependencies:
+
+```bash
+pip install sigmaepsilon.solid.fourier matplotlib pandas xarray pyyaml ipykernel
+```
+
+Development dependencies include:
+
+- **matplotlib** (≥3.8.3): Plotting and visualization
+- **pandas** (≥2.2.0): Data analysis and manipulation
+- **xarray** (≥2024.6.0): Labeled multi-dimensional arrays
+- **pyyaml** (≥6.0.1): YAML configuration files
+- **ipykernel** (≥6.29.5): Jupyter notebook support
+- **texttable** (≥1.7.0): ASCII table formatting
+
+### For Distributed Computing
+
+For large-scale parametric studies, install distributed computing support:
+
+```bash
+pip install dask distributed
+```
+
+### For Advanced Applications
+
+Some example applications require additional packages:
+
+```bash
+pip install pyvista pyarrow papermill
+```
+
+- **pyvista** (≥0.44.2): 3D visualization and mesh processing
+- **pyarrow** (≥19.0.1): Columnar data format
+- **papermill** (≥2.6.0): Parameterized notebook execution
+
+## Installation from Source
+
+To install the latest development version from GitHub:
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/sigma-epsilon/sigmaepsilon.solid.fourier.git
+    cd sigmaepsilon.solid.fourier
+    ```
+  </Step>
+  
+  <Step title="Install Poetry">
+    The project uses Poetry for dependency management:
+    
+    ```bash
+    pip install poetry
+    ```
+  </Step>
+  
+  <Step title="Install Dependencies">
+    Install the package and its dependencies:
+    
+    ```bash
+    poetry install
+    ```
+    
+    Or install with all optional dependencies:
+    
+    ```bash
+    poetry install --with dev,test,docs
+    ```
+  </Step>
+  
+  <Step title="Activate Environment">
+    Activate the Poetry virtual environment:
+    
+    ```bash
+    poetry shell
+    ```
+  </Step>
+</Steps>
+
+## Verify Dependencies
+
+Check that all core dependencies are installed correctly:
+
+```python
+import sigmaepsilon.deepdict
+import sigmaepsilon.mesh
+import sigmaepsilon.solid.material
+import sigmaepsilon.solid.fourier
+
+print("All dependencies loaded successfully!")
+```
+
+## Troubleshooting
+
+<Warning>
+If you encounter import errors, ensure you're using a supported Python version (3.10-3.12). The library does not support Python 3.9 or earlier, or Python 3.13+.
+</Warning>
+
+### Common Issues
+
+**Import Error**: If you see `ModuleNotFoundError`, verify the installation:
+
+```bash
+pip list | grep sigmaepsilon
+```
+
+You should see:
+```
+sigmaepsilon-deepdict       2.x.x
+sigmaepsilon-mesh           3.x.x
+sigmaepsilon-solid-fourier  2.x.x
+sigmaepsilon-solid-material 1.x.x
+```
+
+**Version Conflicts**: If you have version conflicts with existing packages, create a fresh virtual environment:
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install sigmaepsilon.solid.fourier
+```
+
+## Next Steps
+
+<Card title="Quick Start" icon="rocket" href="/quickstart">
+  Run your first beam and plate analysis with SigmaEpsilon Solid Fourier
+</Card>

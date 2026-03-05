@@ -1,0 +1,377 @@
+---
+title: Beam Models
+description: Understanding Euler-Bernoulli and Timoshenko beam theories in Navier's method
+---
+
+## Overview
+
+The library supports two classical beam theories for bending analysis:
+
+<CardGroup cols={2}>
+  <Card title="Euler-Bernoulli" icon="minus">
+    Classical theory neglecting shear deformation (thin beams)
+  </Card>
+  <Card title="Timoshenko" icon="equals">
+    First-order shear deformation theory (thick beams)
+  </Card>
+</CardGroup>
+
+The choice of model is determined automatically based on whether shear stiffness (`GA`) is provided.
+
+## Euler-Bernoulli Beam Theory
+
+### Theory
+
+The **Euler-Bernoulli** (or **Bernoulli-Euler**) theory is the simplest beam model, based on the assumption that:
+
+<Info>
+**Plane sections remain plane and perpendicular to the neutral axis after deformation.**
+</Info>
+
+This means:
+- Cross-sections do not deform in their own plane
+- Shear deformations are neglected
+- Valid for slender beams where $L/h > 20$ (length-to-height ratio)
+
+### Governing Equation
+
+The equilibrium equation is:
+
+$$
+\frac{d^2}{dx^2}\left(EI\frac{d^2w}{dx^2}\right) = q(x)
+$$
+
+For constant bending stiffness $EI$:
+
+$$
+EI\frac{d^4w}{dx^4} = q(x)
+$$
+
+where:
+- $w(x)$ is the transverse displacement
+- $EI$ is the bending stiffness (Young's modulus × second moment of area)
+- $q(x)$ is the distributed load per unit length
+
+### Navier Solution for Euler-Bernoulli Beams
+
+Using the Fourier series approximation:
+
+$$
+w(x) = \sum_{n=1}^{N} W_n \sin\left(\frac{n\pi x}{L}\right)
+$$
+
+Substituting into the governing equation and using orthogonality gives:
+
+$$
+EI \cdot \frac{\pi^4 n^4}{L^4} \cdot W_n = Q_n
+$$
+
+The stiffness coefficient is implemented in `preproc.py:177-202`:
+
+```python
+@njit(nogil=True, parallel=True, cache=True)
+def lhs_Navier_Bernoulli(L: float, N: int, EI: ndarray) -> ndarray:
+    nLHS = EI.shape[0]
+    PI = np.pi
+    res = np.zeros((nLHS, N), dtype=EI.dtype)
+    for iLHS in prange(nLHS):
+        for n in prange(1, N + 1):
+            res[iLHS, n - 1] = PI**4 * EI[iLHS] * n**4 / L**4
+    return res
+```
+
+Note the $n^4$ term, characteristic of fourth-order differential equations.
+
+### Implementation
+
+Define an Euler-Bernoulli beam by providing only the bending stiffness:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, PointLoad
+
+# Euler-Bernoulli beam (no GA parameter)
+beam = NavierBeam(
+    length=10.0,      # Length in meters
+    N=100,            # Number of Fourier terms
+    EI=2000.0         # Bending stiffness (N⋅m²)
+)
+
+print(beam.model_type)  # Output: BERNOULLI_EULER_BEAM
+```
+
+The model type is determined automatically in `beam.py:106-111`:
+
+```python
+@property
+def model_type(self) -> MechanicalModelType:
+    """The mechanical model type of the beam."""
+    if self.GA is None:
+        return MechanicalModelType.BERNOULLI_EULER_BEAM
+    else:
+        return MechanicalModelType.TIMOSHENKO_BEAM
+```
+
+### When to Use Euler-Bernoulli
+
+<AccordionGroup>
+  <Accordion title="Slender Beams (L/h > 20)">
+    For beams where the length is much greater than the cross-sectional height, shear deformations are negligible.
+  </Accordion>
+  <Accordion title="High Frequency Applications">
+    At low frequencies, Euler-Bernoulli theory is accurate even for moderately thick beams.
+  </Accordion>
+  <Accordion title="Preliminary Design">
+    Simpler model for initial calculations and conceptual design.
+  </Accordion>
+  <Accordion title="Educational Purposes">
+    Understanding fundamental bending behavior without the complexity of shear effects.
+  </Accordion>
+</AccordionGroup>
+
+## Timoshenko Beam Theory
+
+### Theory
+
+The **Timoshenko theory** extends Euler-Bernoulli by accounting for:
+
+<CardGroup cols={2}>
+  <Card title="Shear Deformation" icon="grip-lines-vertical">
+    Cross-sections can deform due to shear stress
+  </Card>
+  <Card title="Rotary Inertia" icon="rotate">
+    Cross-sections can rotate independently of deflection slope
+  </Card>
+</CardGroup>
+
+**Key assumption**: Plane sections remain plane but **not necessarily perpendicular** to the neutral axis.
+
+### Governing Equations
+
+The theory introduces two independent variables:
+- $w(x)$: transverse displacement
+- $\theta(x)$: rotation of the cross-section
+
+The coupled equations are:
+
+$$
+\begin{align}
+GA\left(\frac{dw}{dx} - \theta\right) &= Q(x) \\
+\frac{d}{dx}\left(EI\frac{d\theta}{dx}\right) &= Q(x)
+\end{align}
+$$
+
+where:
+- $GA$ is the shear stiffness (shear modulus × effective shear area)
+- $Q(x)$ is the shear force
+
+Combining these with equilibrium gives a system of two equations.
+
+### Shear Correction Factor
+
+<Warning>
+The shear stiffness $GA$ must include the **shear correction factor** $\kappa$ to account for non-uniform shear stress distribution:
+
+$$
+GA_{\text{effective}} = \kappa G A
+$$
+
+Typical values:
+- Rectangular section: $\kappa = 5/6 \approx 0.833$
+- Circular section: $\kappa = 9/10 = 0.9$
+- I-beam: $\kappa \approx A_{\text{web}}/A_{\text{total}}$
+</Warning>
+
+### Navier Solution for Timoshenko Beams
+
+The solution involves two sets of Fourier coefficients:
+
+$$
+w(x) = \sum_{n=1}^{N} W_n \sin\left(\frac{n\pi x}{L}\right)
+$$
+
+$$
+\theta(x) = \sum_{n=1}^{N} \Theta_n \cos\left(\frac{n\pi x}{L}\right)
+$$
+
+Note that $\theta$ uses cosine functions to satisfy simply-supported boundary conditions.
+
+The stiffness matrix becomes a 2×2 system for each harmonic, implemented in `preproc.py:206-243`:
+
+```python
+@njit(nogil=True, parallel=True, cache=True)
+def lhs_Navier_Timoshenko(L: float, N: int, EI: ndarray, GA: ndarray) -> ndarray:
+    nLHS = EI.shape[0]
+    PI = np.pi
+    res = np.zeros((nLHS, N, 2, 2), dtype=EI.dtype)
+    for iLHS in prange(nLHS):
+        for n in prange(1, N + 1):
+            iN = n - 1
+            c1 = PI * n / L
+            c2 = c1 * PI * n / L
+            res[iLHS, iN, 0, 0] = c2 * GA[iLHS]          # Shear term for w
+            res[iLHS, iN, 0, 1] = -c1 * GA[iLHS]         # Coupling term
+            res[iLHS, iN, 1, 0] = res[iLHS, iN, 0, 1]    # Symmetry
+            res[iLHS, iN, 1, 1] = GA[iLHS] + c2 * EI[iLHS]  # Bending + shear
+    return res
+```
+
+The system is:
+
+$$
+\begin{bmatrix}
+\frac{\pi^2 n^2}{L^2} GA & -\frac{\pi n}{L} GA \\
+-\frac{\pi n}{L} GA & GA + \frac{\pi^2 n^2}{L^2} EI
+\end{bmatrix}
+\begin{bmatrix}
+W_n \\
+\Theta_n
+\end{bmatrix}
+=
+\begin{bmatrix}
+Q_n^w \\
+Q_n^\theta
+\end{bmatrix}
+$$
+
+### Implementation
+
+Define a Timoshenko beam by providing both bending and shear stiffness:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, PointLoad
+
+# Material and geometric properties
+E = 210e9      # Young's modulus (Pa)
+G = 80e9       # Shear modulus (Pa)
+kappa = 5/6    # Shear correction factor for rectangular section
+
+# Cross-section properties
+A = 0.01       # Area (m²)
+I = 8.33e-6    # Second moment of area (m⁴)
+
+# Timoshenko beam (with GA parameter)
+beam = NavierBeam(
+    length=10.0,
+    N=100,
+    EI=E * I,           # Bending stiffness
+    GA=kappa * G * A    # Effective shear stiffness
+)
+
+print(beam.model_type)  # Output: TIMOSHENKO_BEAM
+```
+
+### When to Use Timoshenko
+
+<AccordionGroup>
+  <Accordion title="Thick Beams (L/h < 20)">
+    When the beam is relatively thick, shear deformations become significant and must be included.
+  </Accordion>
+  <Accordion title="Composite Materials">
+    Materials with low shear modulus relative to Young's modulus (e.g., fiber-reinforced composites).
+  </Accordion>
+  <Accordion title="High Frequency Analysis">
+    Shear effects become more important at higher natural frequencies.
+  </Accordion>
+  <Accordion title="Accurate Stress Analysis">
+    When accurate shear stress distribution is needed, Timoshenko provides better predictions.
+  </Accordion>
+  <Accordion title="Large Concentrated Loads">
+    Localized loads create high shear stresses that Euler-Bernoulli theory underestimates.
+  </Accordion>
+</AccordionGroup>
+
+## Comparison: Euler-Bernoulli vs Timoshenko
+
+### Displacement Comparison
+
+For the same loading, Timoshenko beams show **larger deflections** due to shear deformation:
+
+$$
+w_{\text{Timoshenko}} = w_{\text{Bernoulli}} + w_{\text{shear}}
+$$
+
+The shear contribution becomes more significant as:
+- The beam becomes thicker (smaller $L/h$)
+- The material has lower shear modulus (smaller $G/E$)
+- The loading is more localized
+
+### Example: Comparison
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import NavierBeam, PointLoad
+
+# Common parameters
+L = 5.0        # Length (m)
+E = 210e9      # Young's modulus (Pa)
+G = 80e9       # Shear modulus (Pa)
+I = 1e-5       # Second moment of area (m⁴)
+A = 0.01       # Cross-sectional area (m²)
+P = 1000.0     # Point load (N)
+
+# Euler-Bernoulli beam
+beam_eb = NavierBeam(length=L, N=100, EI=E*I)
+load = PointLoad(domain=L/2, value=[P, 0.0])
+results_eb = beam_eb.linear_static_analysis(load, points=L/2)
+
+# Timoshenko beam
+beam_tim = NavierBeam(length=L, N=100, EI=E*I, GA=(5/6)*G*A)
+results_tim = beam_tim.linear_static_analysis(load, points=L/2)
+
+# Compare mid-span deflection
+w_eb = results_eb['w'][0]
+w_tim = results_tim['w'][0]
+
+print(f"Euler-Bernoulli deflection: {w_eb:.6f} m")
+print(f"Timoshenko deflection:      {w_tim:.6f} m")
+print(f"Difference:                 {(w_tim - w_eb)/w_eb * 100:.2f}%")
+```
+
+### Summary Table
+
+| Aspect | Euler-Bernoulli | Timoshenko |
+|--------|----------------|------------|
+| **Shear deformation** | Neglected | Included |
+| **Unknowns per harmonic** | 1 ($W_n$) | 2 ($W_n$, $\Theta_n$) |
+| **Stiffness matrix** | Scalar | 2×2 matrix |
+| **Applicable range** | $L/h > 20$ | All $L/h$ ratios |
+| **Computational cost** | Lower | Slightly higher |
+| **Accuracy for thick beams** | Poor | Excellent |
+| **Implementation** | `EI` only | `EI` + `GA` |
+
+## Practical Recommendations
+
+<Steps>
+  <Step title="Start with Euler-Bernoulli">
+    For initial calculations and when $L/h > 20$, use the simpler Euler-Bernoulli model.
+  </Step>
+  <Step title="Check Beam Slenderness">
+    Calculate $L/h$ ratio. If less than 20, consider using Timoshenko.
+  </Step>
+  <Step title="Consider Material Properties">
+    For composites or materials with low $G/E$ ratio, use Timoshenko even for slender beams.
+  </Step>
+  <Step title="Include Shear Correction">
+    Always apply the appropriate shear correction factor when using Timoshenko theory.
+  </Step>
+  <Step title="Compare Results">
+    Run both models and compare. Large differences indicate that shear effects are significant.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Plate Models" icon="square" href="/concepts/plate-models">
+    Learn about 2D extensions: Kirchhoff-Love and Uflyand-Mindlin theories
+  </Card>
+  <Card title="Loads" icon="weight-hanging" href="/concepts/loads">
+    Understand how to define loads for beam problems
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/beam-influence">
+    See complete examples of beam analysis
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/navier-beam">
+    Detailed API documentation for NavierBeam
+  </Card>
+</CardGroup>

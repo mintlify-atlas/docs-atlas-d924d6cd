@@ -1,0 +1,442 @@
+---
+title: Postprocessing
+description: Extract, analyze, and visualize structural analysis results
+---
+
+## Overview
+
+After performing a linear static analysis, results are returned in a structured format that provides multiple ways to access and process the data. This guide covers extracting results, converting between formats, and basic visualization techniques.
+
+## Result Object Structure
+
+Results are returned as a nested dictionary (`DeepDict`) that mirrors the structure of your load groups:
+
+```python
+results = beam.linear_static_analysis(points, loads)
+
+# If loads = LoadGroup(LC1=..., LC2=...)
+# Then results has the same structure:
+# results['LC1'] -> BeamLoadCaseResultLinStat or PlateLoadCaseResultLinStat
+# results['LC2'] -> BeamLoadCaseResultLinStat or PlateLoadCaseResultLinStat
+```
+
+## Accessing Results
+
+### Direct NumPy Array Access
+
+The fastest way to access raw result data:
+
+```python
+# Get results for a specific load case
+lc1_results = results['LC1']
+
+# Access as NumPy array
+data = lc1_results.values  # or .data
+# Shape: (num_points, num_components)
+
+# For beams: (num_points, 6) - UY, ROTZ, CZ, EXY, MZ, SY
+# For plates: (num_points, 13) - UZ, ROTX, ROTY, CX, CY, CXY, EXZ, EYZ, MX, MY, MXY, QX, QY
+```
+
+### Accessing Individual Components
+
+```python
+# Beam results
+result_array = results['LC1'].values
+
+displacements = result_array[:, 0]  # UY
+rotations = result_array[:, 1]      # ROTZ
+curvatures = result_array[:, 2]     # CZ
+shear_strains = result_array[:, 3]  # EXY
+moments = result_array[:, 4]        # MZ
+shear_forces = result_array[:, 5]   # SY
+```
+
+```python
+# Plate results
+result_array = results['LC1'].values
+
+deflections = result_array[:, 0]     # UZ
+rotations_x = result_array[:, 1]     # ROTX
+rotations_y = result_array[:, 2]     # ROTY
+curvatures_x = result_array[:, 3]    # CX
+curvatures_y = result_array[:, 4]    # CY
+twisting_curvatures = result_array[:, 5]  # CXY
+shear_strains_xz = result_array[:, 6]     # EXZ
+shear_strains_yz = result_array[:, 7]     # EYZ
+moments_x = result_array[:, 8]       # MX
+moments_y = result_array[:, 9]       # MY
+twisting_moments = result_array[:, 10]    # MXY
+shear_forces_x = result_array[:, 11]      # QX
+shear_forces_y = result_array[:, 12]      # QY
+```
+
+## Converting to xarray
+
+xarray provides labeled arrays for easier data manipulation:
+
+```python
+import xarray as xr
+
+# Convert to xarray DataArray
+result_xr = results['LC1'].to_xarray()
+
+# Select specific component at specific point
+deflection_at_point_0 = result_xr.sel(index=0, component='UZ')
+moment_at_point_5 = result_xr.sel(index=5, component='MZ')
+
+# Extract as float
+value = float(result_xr.sel(index=0, component='UZ'))
+
+# Select all values for a component
+all_deflections = result_xr.sel(component='UZ')
+
+# Works with NumPy functions
+max_deflection = all_deflections.max()
+min_deflection = all_deflections.min()
+mean_deflection = all_deflections.mean()
+```
+
+## Converting to pandas
+
+pandas DataFrames are useful for tabular data analysis:
+
+```python
+import pandas as pd
+
+# Convert to pandas DataFrame
+df = results['LC1'].to_pandas()
+
+# DataFrame has columns named after components
+print(df.columns)
+# For beams: ['UY', 'ROTZ', 'CZ', 'EXY', 'MZ', 'SY']
+# For plates: ['UZ', 'ROTX', 'ROTY', 'CX', 'CY', 'CXY', 'EXZ', 'EYZ', 'MX', 'MY', 'MXY', 'QX', 'QY']
+
+# Access components
+deflections = df['UZ']
+moments = df['MX']
+
+# Statistical analysis
+print(df.describe())
+
+# Filter points with high deflection
+high_deflection_points = df[df['UZ'] < -10.0]
+
+# Export to CSV
+df.to_csv('results.csv')
+```
+
+## Extracting Strains
+
+For plates, you can extract strain components directly:
+
+```python
+# Get all strain components
+strains = results['LC'].strains
+
+# For plates, this returns:
+# strains[:, 0] -> CX
+# strains[:, 1] -> CY
+# strains[:, 2] -> CXY
+# strains[:, 3] -> EXZ
+# strains[:, 4] -> EYZ
+```
+
+## Working with Multiple Load Cases
+
+### Compare results across load cases
+
+```python
+loads = LoadGroup(
+    LC1=PointLoad([300, 400], [-100, 0, 0]),
+    LC2=PointLoad([450, 400], [-100, 0, 0]),
+    LC3=RectangleLoad([[0, 0], [600, 800]], [-0.1, 0, 0])
+)
+
+results = plate.linear_static_analysis(points, loads)
+
+# Extract max deflection for each case
+for case_name in ['LC1', 'LC2', 'LC3']:
+    deflections = results[case_name].values[:, 0]
+    max_deflection = np.abs(deflections).max()
+    print(f"{case_name}: {max_deflection:.4f}")
+```
+
+### Combine results from multiple load cases
+
+```python
+# Load combination: 1.2 * Dead + 1.6 * Live
+dead_results = results['Dead'].values
+live_results = results['Live'].values
+
+combined_results = 1.2 * dead_results + 1.6 * live_results
+
+# Extract combined deflections
+combined_deflections = combined_results[:, 0]
+max_combined = np.abs(combined_deflections).max()
+```
+
+## Visualization with Matplotlib
+
+### Beam Diagrams
+
+```python
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Analyze beam
+beam_length = 10.0
+beam = NavierBeam(beam_length, 100, EI=2000.0)
+loads = LoadGroup(LC=PointLoad(beam_length/2, [100.0, 0.0]))
+
+points = np.linspace(0, beam_length, 100)
+results = beam.linear_static_analysis(points, loads)
+
+# Create plots
+fig, axs = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+
+result_data = results['LC'].values
+
+# Deflection diagram
+axs[0].plot(points, result_data[:, 0])
+axs[0].set_ylabel('Deflection (UY)')
+axs[0].grid(True)
+
+# Moment diagram
+axs[1].plot(points, result_data[:, 4])
+axs[1].set_ylabel('Moment (MZ)')
+axs[1].grid(True)
+
+# Shear force diagram
+axs[2].plot(points, result_data[:, 5])
+axs[2].set_ylabel('Shear Force (SY)')
+axs[2].set_xlabel('Position (x)')
+axs[2].grid(True)
+
+plt.tight_layout()
+plt.show()
+```
+
+### Influence Diagrams
+
+```python
+from sigmaepsilon.solid.fourier import BeamLoadCaseResultLinStat
+
+evaluation_point = np.array([beam_length/3])
+number_of_loads = 50
+
+load_positions = []
+solutions = []
+
+for i in range(number_of_loads):
+    load_position = beam_length * i / (number_of_loads - 1)
+    beam_loads = LoadGroup(LC=PointLoad(load_position, [1.0, 0.0]))
+    solution = beam.linear_static_analysis(evaluation_point, beam_loads)
+    solutions.append(solution["LC"].to_xarray())
+    load_positions.append(load_position)
+
+# Plot influence diagrams
+fig, axs = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
+
+components = BeamLoadCaseResultLinStat.components
+labels = [r"$v$", r"$\theta$", r"$M$"]
+indices = [0, 1, 4]  # UY, ROTZ, MZ
+
+for i, (idx, label) in enumerate(zip(indices, labels)):
+    component = components[idx]
+    data = [float(s.sel(index=0, component=component).values) for s in solutions]
+    axs[i].plot(load_positions, data, 'b-')
+    axs[i].set_ylabel(label)
+    axs[i].axvline(x=evaluation_point[0], color='red', linestyle='--', alpha=0.5)
+    axs[i].grid(True, alpha=0.3)
+
+axs[-1].set_xlabel('Load Position')
+fig.suptitle('Influence Diagrams')
+plt.tight_layout()
+plt.show()
+```
+
+### Plate Contour Plots
+
+```python
+# Create grid
+nx, ny = 100, 100
+x = np.linspace(0, length_X, nx)
+y = np.linspace(0, length_Y, ny)
+xv, yv = np.meshgrid(x, y)
+points = np.stack((xv.flatten(), yv.flatten()), axis=1)
+
+# Analyze
+results = plate.linear_static_analysis(points, loads)
+
+# Extract deflection and reshape
+deflection = results['LC'].values[:, 0]
+deflection_grid = deflection.reshape((ny, nx))
+
+# Create contour plot
+plt.figure(figsize=(10, 8))
+contour = plt.contourf(xv, yv, deflection_grid, levels=20, cmap='viridis')
+plt.colorbar(contour, label='Deflection (UZ)')
+plt.xlabel('X')
+plt.ylabel('Y')
+plt.title('Plate Deflection')
+plt.axis('equal')
+plt.show()
+```
+
+## Visualization with PyVista
+
+For 3D visualization of plate results:
+
+```python
+import pyvista as pv
+
+# Create evaluation points on a grid
+nx, ny = 150, 200
+x = np.linspace(0, length_X, nx)
+y = np.linspace(0, length_Y, ny)
+xv, yv = np.meshgrid(x, y)
+points_2d = np.stack((xv.flatten(), yv.flatten()), axis=1)
+
+# Analyze
+results = plate.linear_static_analysis(points_2d, loads)
+
+# Create 3D coordinates with deflection
+deflection = results['LC'].values[:, 0]
+points_3d = np.column_stack([points_2d, deflection])
+
+# Create point cloud
+point_cloud = pv.PolyData(points_3d)
+point_cloud['deflection'] = deflection
+
+# Plot
+plotter = pv.Plotter()
+plotter.add_mesh(
+    point_cloud,
+    scalars='deflection',
+    cmap='turbo',
+    point_size=10,
+    render_points_as_spheres=True
+)
+plotter.show()
+```
+
+## Stress Analysis for Plates
+
+Calculate stresses through the plate thickness:
+
+```python
+from sigmaepsilon.solid.material import MindlinPlateSection
+
+# Get strains from results
+strains = results['LC'].strains
+evaluation_points_2d = points[:, :2]  # X, Y coordinates
+
+# Define through-thickness evaluation points
+z_levels = np.linspace(-thickness/2, thickness/2, 20)
+
+# Calculate utilization (requires failure criterion)
+utilization, util_coords = section.utilization(
+    strains=strains,
+    rng=(-thickness/2, thickness/2),
+    z=z_levels,
+    coords=evaluation_points_2d,
+    return_coords=True
+)
+
+# utilization is now available for all points through thickness
+# util_coords contains 3D coordinates of evaluation points
+```
+
+## Exporting Results
+
+### Save to Parquet
+
+```python
+from sigmaepsilon.mesh import PointData
+
+# Save 2D results
+pd_2d = PointData(evaluation_points_2d, results=results['LC'].values)
+pd_2d.to_parquet('plate_results_2d.parquet')
+
+# Save 3D utilization results
+pd_3d = PointData(util_coords, utilization=utilization)
+pd_3d.to_parquet('plate_results_3d.parquet')
+```
+
+### Save to JSON
+
+```python
+import json
+
+# Prepare output dictionary
+output = {
+    'max_deflection': float(results['LC'].values[:, 0].min()),
+    'max_moment_x': float(np.abs(results['LC'].values[:, 8]).max()),
+    'max_moment_y': float(np.abs(results['LC'].values[:, 9]).max()),
+}
+
+# Write to file
+with open('analysis_summary.json', 'w') as f:
+    json.dump(output, indent=2, fp=f)
+```
+
+## Available Result Components
+
+### Beam Results
+
+| Index | Component | Description |
+|-------|-----------|-------------|
+| 0 | `UY` | Displacement in Y direction |
+| 1 | `ROTZ` | Rotation around Z axis |
+| 2 | `CZ` | Curvature related to bending around Z axis |
+| 3 | `EXY` | Engineering shear strain in the X-Y plane |
+| 4 | `MZ` | Bending moment around Z axis |
+| 5 | `SY` | Shear force in Y direction |
+
+### Plate Results
+
+| Index | Component | Description |
+|-------|-----------|-------------|
+| 0 | `UZ` | Displacement in Z direction |
+| 1 | `ROTX` | Rotation around X axis (CCW) |
+| 2 | `ROTY` | Rotation around Y axis (CCW) |
+| 3 | `CX` | Curvature related to bending around X axis |
+| 4 | `CY` | Curvature related to bending around Y axis |
+| 5 | `CXY` | Twisting curvature |
+| 6 | `EXZ` | Engineering shear strain in X-Z plane |
+| 7 | `EYZ` | Engineering shear strain in Y-Z plane |
+| 8 | `MX` | Bending moment around Y axis (CCW) |
+| 9 | `MY` | Bending moment around X axis (CW) |
+| 10 | `MXY` | Twisting moment |
+| 11 | `QX` | Shear force on the X-Z plane (+Z) |
+| 12 | `QY` | Shear force on the Y-Z plane (+Z) |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choosing result format">
+    - **NumPy arrays**: Fastest, best for numerical computations
+    - **xarray**: Best for labeled access and selection
+    - **pandas**: Best for statistical analysis and export
+  </Accordion>
+
+  <Accordion title="Memory considerations">
+    For large problems with many evaluation points:
+    - Process results in chunks
+    - Extract only needed components
+    - Use NumPy arrays instead of pandas for memory efficiency
+  </Accordion>
+
+  <Accordion title="Visualization resolution">
+    - Use 50-100 points per direction for line plots
+    - Use 100-200 points per direction for contour plots
+    - Higher resolution improves visual quality but increases computation time
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- Learn about [Beam Analysis](/guides/beam-analysis) workflows
+- Learn about [Plate Analysis](/guides/plate-analysis) workflows  
+- Explore [Load Definition](/guides/load-definition) options

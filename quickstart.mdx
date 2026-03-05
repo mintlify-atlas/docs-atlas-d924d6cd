@@ -1,80 +1,342 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get started with beam and plate analysis using SigmaEpsilon Solid Fourier
 ---
 
-## Get started in three steps
+# Quick Start
 
-Get your documentation site running locally and make your first customization.
+This guide will get you analyzing beams and plates in minutes. We'll cover the basic workflow for both Euler-Bernoulli beams and Kirchhoff-Love plates.
 
-### Step 1: Set up your local environment
+## Basic Workflow
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+All analyses follow the same pattern:
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Define the Structure">
+    Create a beam or plate with geometry and material properties
+  </Step>
+  
+  <Step title="Define Loads">
+    Create load groups with point, line, rectangular, or disk loads
+  </Step>
+  
+  <Step title="Run Analysis">
+    Perform linear static analysis
+  </Step>
+  
+  <Step title="Extract Results">
+    Access deflections, moments, shears, and stresses at desired points
+  </Step>
+</Steps>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+## Beam Analysis Example
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+Let's analyze a simply-supported Euler-Bernoulli beam with a point load at mid-span.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+### Define the Beam
 
-### Step 3: Go live
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, LoadGroup, PointLoad
+import numpy as np
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+# Create an Euler-Bernoulli beam
+# Length: 10.0 m
+# Harmonic terms: 100
+# Bending stiffness: 2000.0 kN·m²
+beam = NavierBeam(
+    length=10.0,
+    N=100,
+    EI=2000.0
+)
+```
 
-## Next steps
+<Info>
+For an Euler-Bernoulli beam, only specify `EI` (bending stiffness). Omit `GA` (shear stiffness) to use the classical beam theory without shear deformation.
+</Info>
 
-Now that you have your docs running, explore these key features:
+### Define Loads
+
+```python
+# Create a load group
+loads = LoadGroup()
+
+# Add a point load at mid-span (x = 5.0 m)
+# Magnitude: -10.0 kN (downward)
+loads["mid_span_load"] = PointLoad(x=5.0, P=-10.0)
+```
+
+### Run Analysis
+
+```python
+# Define evaluation points along the beam
+points = np.linspace(0, 10.0, 51)  # 51 points from 0 to 10 m
+
+# Perform linear static analysis
+results = beam.linear_static_analysis(loads=loads, points=points)
+```
+
+### Extract Results
+
+```python
+# Access results for the mid-span load case
+mid_span_results = results["mid_span_load"]
+
+# Extract deflection (w), rotation (θ), moment (M), and shear (V)
+deflection = mid_span_results.w  # shape: (51,)
+rotation = mid_span_results.th   # shape: (51,)
+moment = mid_span_results.M      # shape: (51,)
+shear = mid_span_results.V       # shape: (51,)
+
+# Find maximum deflection
+max_deflection = np.min(deflection)  # Negative = downward
+max_location = points[np.argmin(deflection)]
+
+print(f"Maximum deflection: {max_deflection:.6f} m at x = {max_location:.2f} m")
+```
+
+### Timoshenko Beam
+
+To include shear deformation, specify both `EI` and `GA`:
+
+```python
+# Create a Timoshenko beam with shear stiffness
+beam_timoshenko = NavierBeam(
+    length=10.0,
+    N=100,
+    EI=2000.0,   # Bending stiffness
+    GA=1500.0    # Shear stiffness
+)
+
+# Use the same workflow as above
+results = beam_timoshenko.linear_static_analysis(loads=loads, points=points)
+```
+
+<Tip>
+Timoshenko beam theory is important for short, thick beams or when shear flexibility significantly affects the response. For slender beams, Euler-Bernoulli theory is sufficient.
+</Tip>
+
+## Plate Analysis Example
+
+Now let's analyze a simply-supported rectangular Kirchhoff-Love plate with a concentrated load.
+
+### Define the Plate
+
+```python
+from sigmaepsilon.solid.fourier import NavierPlate, LoadGroup, PointLoad
+import numpy as np
+
+# Plate dimensions and material properties
+Lx, Ly = 10.0, 8.0  # Length and width (m)
+t = 0.2              # Thickness (m)
+E = 30e6             # Young's modulus (kN/m²)
+nu = 0.3             # Poisson's ratio
+
+# Calculate flexural rigidity
+D_value = E * t**3 / (12 * (1 - nu**2))
+
+# Flexural constitutive matrix for isotropic material
+D = np.array([
+    [D_value, nu * D_value, 0],
+    [nu * D_value, D_value, 0],
+    [0, 0, D_value * (1 - nu) / 2]
+])
+
+# Create a Kirchhoff-Love plate
+# size: (Lx, Ly) - plate dimensions
+# shape: (Mx, My) - number of harmonic terms in each direction
+plate = NavierPlate(
+    size=(Lx, Ly),
+    shape=(50, 50),
+    D=D
+)
+```
+
+<Info>
+For a Kirchhoff-Love plate, only specify `D` (flexural stiffness matrix). Omit `S` (shear stiffness matrix) to use thin plate theory.
+</Info>
+
+### Define Loads
+
+```python
+# Create a load group
+loads = LoadGroup()
+
+# Add a point load at the center
+# Magnitude: -100.0 kN (downward)
+loads["center_load"] = PointLoad(x=Lx/2, y=Ly/2, P=-100.0)
+```
+
+### Run Analysis
+
+```python
+# Define evaluation points (grid)
+x = np.linspace(0, Lx, 21)
+y = np.linspace(0, Ly, 21)
+X, Y = np.meshgrid(x, y)
+points = np.column_stack([X.ravel(), Y.ravel()])  # shape: (441, 2)
+
+# Perform linear static analysis
+results = plate.linear_static_analysis(loads=loads, points=points)
+```
+
+### Extract Results
+
+```python
+# Access results for the center load case
+center_results = results["center_load"]
+
+# Extract deflection (w), rotations (thx, thy), moments (Mx, My, Mxy), and shears (Vx, Vy)
+deflection = center_results.w.reshape(21, 21)  # Reshape to grid
+Mx = center_results.Mx.reshape(21, 21)         # Moment about x-axis
+My = center_results.My.reshape(21, 21)         # Moment about y-axis
+Mxy = center_results.Mxy.reshape(21, 21)       # Twisting moment
+
+# Find maximum deflection
+max_deflection = np.min(deflection)
+max_idx = np.unravel_index(np.argmin(deflection), (21, 21))
+max_x = x[max_idx[1]]
+max_y = y[max_idx[0]]
+
+print(f"Maximum deflection: {max_deflection:.6f} m at ({max_x:.2f}, {max_y:.2f}) m")
+```
+
+### Mindlin-Reissner Plate
+
+For thick plates, include shear deformation by specifying the shear stiffness matrix `S`:
+
+```python
+# Shear modulus
+G = E / (2 * (1 + nu))
+
+# Shear correction factor (typical value for rectangular cross-section)
+kappa = 5.0 / 6.0
+
+# Shear stiffness matrix
+S = np.array([
+    [kappa * G * t, 0],
+    [0, kappa * G * t]
+])
+
+# Create a Mindlin-Reissner plate
+plate_mindlin = NavierPlate(
+    size=(Lx, Ly),
+    shape=(50, 50),
+    D=D,
+    S=S  # Include shear stiffness
+)
+
+# Use the same workflow as above
+results = plate_mindlin.linear_static_analysis(loads=loads, points=points)
+```
+
+<Warning>
+Mindlin-Reissner theory is necessary for thick plates (t/L > 1/20) or when accurate shear stress distributions are required. For thin plates, Kirchhoff-Love theory is sufficient and more computationally efficient.
+</Warning>
+
+## Multiple Load Cases
+
+You can define multiple load cases in a single load group:
+
+```python
+loads = LoadGroup()
+
+# Define multiple load cases
+loads["load_case_1"] = PointLoad(x=5.0, P=-10.0)
+loads["load_case_2"] = PointLoad(x=7.5, P=-15.0)
+loads["load_case_3"] = PointLoad(x=2.5, P=-8.0)
+
+# Run analysis for all load cases
+results = beam.linear_static_analysis(loads=loads, points=points)
+
+# Access individual results
+result_1 = results["load_case_1"]
+result_2 = results["load_case_2"]
+result_3 = results["load_case_3"]
+```
+
+## Other Load Types
+
+The library supports various load types:
+
+<CodeGroup>
+```python Line Load
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Line load distributed over a segment
+# For beams: from x1 to x2
+loads["distributed"] = LineLoad(x1=2.0, x2=8.0, q=-5.0)  # kN/m
+```
+
+```python Rectangle Load
+from sigmaepsilon.solid.fourier import RectangleLoad
+
+# Rectangular distributed load (for plates)
+# Applied over region (x1, y1) to (x2, y2)
+loads["patch"] = RectangleLoad(
+    x1=2.0, y1=2.0,
+    x2=8.0, y2=6.0,
+    q=-10.0  # kN/m²
+)
+```
+
+```python Disk Load
+from sigmaepsilon.solid.fourier import DiskLoad
+
+# Circular distributed load (for plates)
+# Center at (xc, yc) with radius R
+loads["circular"] = DiskLoad(
+    xc=5.0, yc=4.0,
+    R=1.5,
+    q=-10.0  # kN/m²
+)
+```
+</CodeGroup>
+
+## Visualization
+
+Visualize results using Matplotlib:
+
+```python
+import matplotlib.pyplot as plt
+
+# Plot beam deflection
+plt.figure(figsize=(10, 6))
+plt.plot(points, deflection * 1000, 'b-', linewidth=2)
+plt.xlabel('Position (m)')
+plt.ylabel('Deflection (mm)')
+plt.title('Beam Deflection under Point Load')
+plt.grid(True)
+plt.show()
+
+# Plot plate deflection contour
+plt.figure(figsize=(10, 8))
+contour = plt.contourf(X, Y, deflection * 1000, levels=20, cmap='RdBu_r')
+plt.colorbar(contour, label='Deflection (mm)')
+plt.xlabel('x (m)')
+plt.ylabel('y (m)')
+plt.title('Plate Deflection Contour')
+plt.axis('equal')
+plt.show()
+```
+
+## Next Steps
+
+Now that you've run your first analyses, explore more advanced topics:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Load Types" icon="weight-hanging" href="/guides/load-definition">
+    Learn about all available load types and combinations
+  </Card>
+  
+  <Card title="Material Properties" icon="cube" href="/concepts/plate-models">
+    Define material stiffness matrices for different materials
+  </Card>
+  
+  <Card title="Result Interpretation" icon="chart-line" href="/guides/postprocessing">
+    Understand result objects and extract specific quantities
+  </Card>
+  
+  <Card title="Examples Gallery" icon="images" href="/examples/beam-influence">
+    Browse complete examples with visualization
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

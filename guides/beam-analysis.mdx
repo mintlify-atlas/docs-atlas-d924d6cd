@@ -1,0 +1,214 @@
+---
+title: Beam Analysis
+description: Complete workflow for analyzing simply-supported beams using Navier's method
+---
+
+## Overview
+
+The `NavierBeam` class provides semi-analytic solutions for simply-supported beams using Fourier series expansion. The library supports both Euler-Bernoulli and Timoshenko beam theories.
+
+## Beam Theory Selection
+
+The beam model is automatically selected based on the stiffness properties you provide:
+
+- **Euler-Bernoulli**: Only bending stiffness (`EI`) is provided
+- **Timoshenko**: Both bending stiffness (`EI`) and shear stiffness (`GA`) are provided
+
+## Complete Workflow
+
+<Steps>
+  <Step title="Import required modules">
+    ```python
+    from sigmaepsilon.solid.fourier import NavierBeam, LoadGroup, PointLoad
+    import numpy as np
+    ```
+  </Step>
+
+  <Step title="Define geometry and material properties">
+    ```python
+    # Geometry
+    beam_length = 1000.0
+    width, height = 20.0, 80.0  # rectangular cross-section
+
+    # Material properties
+    young_modulus = 210000.0
+    poisson_ratio = 0.25
+    area = width * height
+    shear_modulus = young_modulus / (2 * (1 + poisson_ratio))
+    ```
+  </Step>
+
+  <Step title="Calculate stiffness properties">
+    ```python
+    # Bending stiffness
+    inertia = width * height**3 / 12
+    bending_stiffness = young_modulus * inertia
+
+    # Shear stiffness (for Timoshenko beam)
+    shear_correction_factor = 5 / 6
+    shear_stiffness = shear_modulus * area * shear_correction_factor
+    ```
+  </Step>
+
+  <Step title="Create the beam model">
+    **Euler-Bernoulli Beam:**
+    ```python
+    number_of_modes = 100
+    beam = NavierBeam(
+        beam_length, 
+        number_of_modes, 
+        EI=bending_stiffness
+    )
+    ```
+
+    **Timoshenko Beam:**
+    ```python
+    beam = NavierBeam(
+        beam_length, 
+        number_of_modes, 
+        EI=bending_stiffness, 
+        GA=shear_stiffness
+    )
+    ```
+  </Step>
+
+  <Step title="Define loads">
+    **Single point load:**
+    ```python
+    load_position = beam_length / 3
+    loads = LoadGroup(
+        LC1=PointLoad(load_position, [1.0, 0.0])  # [Force, Moment]
+    )
+    ```
+
+    **Multiple load cases:**
+    ```python
+    loads = LoadGroup(
+        LC1=PointLoad(beam_length / 3, [1.0, 0.0]),
+        LC2=PointLoad(beam_length / 2, [2.0, 0.0]),
+        LC3=PointLoad(2 * beam_length / 3, [1.5, 0.5])
+    )
+    loads.lock()  # Protect from accidental modification
+    ```
+  </Step>
+
+  <Step title="Solve and extract results">
+    ```python
+    # Define evaluation points
+    evaluation_point = np.array([beam_length / 3])
+
+    # Perform analysis
+    results = beam.linear_static_analysis(evaluation_point, loads)
+
+    # Access results for load case LC1
+    lc1_results = results["LC1"]
+    ```
+  </Step>
+
+  <Step title="Access specific result quantities">
+    ```python
+    # Convert to xarray for easy access
+    result_array = results["LC1"].to_xarray()
+
+    # Extract individual components
+    displacement = float(result_array.sel(index=0, component="UY"))
+    rotation = float(result_array.sel(index=0, component="ROTZ"))
+    curvature = float(result_array.sel(index=0, component="CZ"))
+    shear_strain = float(result_array.sel(index=0, component="EXY"))
+    moment = float(result_array.sel(index=0, component="MZ"))
+    shear_force = float(result_array.sel(index=0, component="SY"))
+    ```
+  </Step>
+</Steps>
+
+## Multiple Load Cases Example
+
+Analyze influence diagrams by varying load position:
+
+```python
+number_of_loads = 100
+solutions = []
+load_positions = []
+
+evaluation_point = np.array([beam_length / 3])
+
+for i in range(number_of_loads):
+    load_position = beam_length * i / (number_of_loads - 1)
+    beam_loads = LoadGroup(LC=PointLoad(load_position, [1.0, 0.0]))
+    solution = beam.linear_static_analysis(evaluation_point, beam_loads)
+    solutions.append(solution["LC"].to_xarray())
+    load_positions.append(load_position)
+```
+
+## Available Result Components
+
+The beam analysis returns the following components at each evaluation point:
+
+| Component | Description |
+|-----------|-------------|
+| `UY` | Displacement in Y direction |
+| `ROTZ` | Rotation around Z axis |
+| `CZ` | Curvature related to bending around Z axis |
+| `EXY` | Engineering shear strain in the X-Y plane |
+| `MZ` | Bending moment around Z axis |
+| `SY` | Shear force in Y direction |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choosing the number of modes">
+    Start with 100 modes for most applications. Increase to 200+ for:
+    - High accuracy requirements
+    - Concentrated loads near boundaries
+    - Short, thick beams (Timoshenko)
+  </Accordion>
+
+  <Accordion title="When to use Timoshenko theory">
+    Use Timoshenko beam theory when:
+    - The beam is short and thick (length/height < 10)
+    - Shear deformation is significant
+    - High accuracy is required for short beams
+
+    Use Euler-Bernoulli theory when:
+    - The beam is slender (length/height > 20)
+    - Shear deformation is negligible
+  </Accordion>
+
+  <Accordion title="Load definition conventions">
+    For `PointLoad(position, [F, M])`:
+    - `F` is the vertical force (positive downward)
+    - `M` is the moment around Z axis (positive counterclockwise)
+  </Accordion>
+</AccordionGroup>
+
+## Common Patterns
+
+### Analyzing multiple points
+
+```python
+# Define multiple evaluation points
+evaluation_points = np.linspace(0, beam_length, 50)
+
+# Perform analysis
+results = beam.linear_static_analysis(evaluation_points, loads)
+
+# Results now contain data for all 50 points
+result_data = results["LC1"].values  # Shape: (50, 6)
+```
+
+### Working with the raw NumPy array
+
+```python
+# Get raw NumPy array
+result_array = results["LC1"].data  # or .values
+
+# Access by index
+displacements = result_array[:, 0]  # All UY values
+moments = result_array[:, 4]  # All MZ values
+```
+
+## Next Steps
+
+- Learn about [Load Definition](/guides/load-definition) for more complex loading scenarios
+- Explore [Postprocessing](/guides/postprocessing) techniques for result analysis
+- See [Plate Analysis](/guides/plate-analysis) for 2D structural analysis

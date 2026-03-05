@@ -1,0 +1,196 @@
+---
+title: NavierPlate
+description: A class for analyzing simply-supported rectangular plates using Navier's method
+---
+
+## Overview
+
+The `NavierPlate` class handles semi-analytic solutions of simply-supported Kirchhoff-Love and Mindlin-Reissner rectangular plates of constant thickness. The plate model type depends on whether shear stiffness is provided.
+
+## Constructor
+
+```python
+NavierPlate(
+    size: tuple[float],
+    shape: tuple[int],
+    *,
+    D: Iterable,
+    S: Iterable | None = None,
+    loads: LoadGroupProtocol | None = None
+)
+```
+
+### Parameters
+
+<ParamField path="size" type="tuple[float]" required>
+  The size of the rectangle (width, height).
+</ParamField>
+
+<ParamField path="shape" type="tuple[int]" required>
+  Numbers of harmonic terms involved in both directions.
+</ParamField>
+
+<ParamField path="D" type="Iterable" required>
+  3x3 flexural constitutive matrix.
+</ParamField>
+
+<ParamField path="S" type="Iterable | None" default="None">
+  2x2 shear constitutive matrix. Only for Mindlin-Reissner plates. If None, the plate is modeled as Kirchhoff-Love.
+</ParamField>
+
+<ParamField path="loads" type="LoadGroupProtocol | None" default="None">
+  The loads applied to the plate.
+</ParamField>
+
+## Properties
+
+### size
+
+```python
+@property
+def size(self) -> ndarray[float]
+```
+
+Returns the size of the rectangle as a NumPy array. This property is read-only.
+
+### shape
+
+```python
+@property
+def shape(self) -> ndarray[int]
+```
+
+Returns the shape (number of harmonic terms) in both directions as a NumPy array. This property is read-only.
+
+### model_type
+
+```python
+@property
+def model_type(self) -> MechanicalModelType
+```
+
+Returns the mechanical model type of the plate:
+- `MechanicalModelType.KIRCHHOFF_LOVE_PLATE` if S is None
+- `MechanicalModelType.UFLYAND_MINDLIN_PLATE` if S is provided
+
+## Methods
+
+### linear_static_analysis
+
+```python
+def linear_static_analysis(
+    self,
+    *args,
+    points: Iterable | None = None,
+    loads: LoadGroupProtocol | None = None
+) -> DeepDict[Hashable, DeepDict | PlateLoadCaseResultLinStat]
+```
+
+Performs a linear static analysis and calculates all postprocessing quantities at one or more points.
+
+#### Parameters
+
+<ParamField path="*args" type="Iterable[float] or LoadGroup">
+  The loads and points, in any order.
+</ParamField>
+
+<ParamField path="points" type="Iterable[Iterable[float]] | None" default="None">
+  2D float array of coordinates where the results are to be evaluated.
+</ParamField>
+
+<ParamField path="loads" type="LoadGroupProtocol | None" default="None">
+  The loads. If not provided, uses the loads from the plate instance.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="result" type="DeepDict">
+  A dictionary with the same layout as the loads, containing analysis results for each load case.
+</ResponseField>
+
+## Examples
+
+### Kirchhoff-Love Plate
+
+Define a Kirchhoff-Love plate with specified dimensions and flexural stiffness:
+
+```python
+from sigmaepsilon.solid.fourier import NavierPlate
+import numpy as np
+
+# Define flexural constitutive matrix (3x3)
+D = np.array([
+    [1000.0, 300.0, 0.0],
+    [300.0, 1000.0, 0.0],
+    [0.0, 0.0, 350.0]
+])
+
+# Create plate
+plate = NavierPlate(
+    size=(10.0, 8.0),
+    shape=(50, 40),
+    D=D
+)
+```
+
+### Mindlin-Reissner Plate
+
+Define a Mindlin-Reissner plate with both flexural and shear stiffness:
+
+```python
+from sigmaepsilon.solid.fourier import NavierPlate
+import numpy as np
+
+# Define flexural constitutive matrix (3x3)
+D = np.array([
+    [1000.0, 300.0, 0.0],
+    [300.0, 1000.0, 0.0],
+    [0.0, 0.0, 350.0]
+])
+
+# Define shear constitutive matrix (2x2)
+S = np.array([
+    [500.0, 0.0],
+    [0.0, 500.0]
+])
+
+# Create plate
+plate = NavierPlate(
+    size=(10.0, 8.0),
+    shape=(50, 40),
+    D=D,
+    S=S
+)
+```
+
+### Linear Static Analysis
+
+Perform a linear static analysis with evaluation points:
+
+```python
+from sigmaepsilon.solid.fourier import NavierPlate, LoadGroup
+import numpy as np
+
+# Create plate
+D = np.array([
+    [1000.0, 300.0, 0.0],
+    [300.0, 1000.0, 0.0],
+    [0.0, 0.0, 350.0]
+])
+
+plate = NavierPlate(
+    size=(10.0, 8.0),
+    shape=(50, 40),
+    D=D
+)
+
+# Define evaluation points (2D array)
+points = np.array([
+    [2.5, 4.0],
+    [5.0, 4.0],
+    [7.5, 4.0]
+])
+
+# Perform analysis (assuming loads are defined)
+results = plate.linear_static_analysis(points=points)
+```

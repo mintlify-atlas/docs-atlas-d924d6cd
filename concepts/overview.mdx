@@ -1,0 +1,199 @@
+---
+title: Overview of Navier's Method
+description: Understanding the Fourier series approach to solving beam and plate problems
+---
+
+## Introduction
+
+The `sigmaepsilon.solid.fourier` library provides semi-analytic solutions for beam and plate bending problems using **Navier's method**. This approach leverages Fourier series to satisfy boundary conditions inherently through the choice of approximating functions.
+
+<Info>
+While Navier's method is limited to specific boundary conditions, it offers significant computational advantages over numerical methods like FEM when applicable.
+</Info>
+
+## What is Navier's Method?
+
+Navier's method solves differential equations by approximating the solution as a **double Fourier series** (for plates) or a **single Fourier series** (for beams):
+
+### For Beams
+
+The transverse displacement is approximated as:
+
+$$
+w(x) = \sum_{n=1}^{N} W_n \sin\left(\frac{n\pi x}{L}\right)
+$$
+
+where:
+- $W_n$ are the unknown Fourier coefficients
+- $N$ is the number of harmonic terms
+- $L$ is the beam length
+
+### For Plates
+
+The transverse displacement is approximated as:
+
+$$
+w(x, y) = \sum_{m=1}^{M} \sum_{n=1}^{N} W_{mn} \sin\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right)
+$$
+
+where:
+- $W_{mn}$ are the unknown Fourier coefficients
+- $M$ and $N$ are the numbers of harmonic terms in each direction
+- $L_x$ and $L_y$ are the plate dimensions
+
+## Simply-Supported Boundary Conditions
+
+The sine functions used in Navier's method **automatically satisfy simply-supported boundary conditions**:
+
+<CardGroup cols={2}>
+  <Card title="Zero Displacement" icon="arrows-to-dot">
+    At the boundaries, $\sin(0) = \sin(\pi) = 0$, ensuring zero displacement
+  </Card>
+  <Card title="Zero Bending Moment" icon="wave-sine">
+    The second derivative of sine functions also vanishes at boundaries, satisfying zero moment conditions
+  </Card>
+</CardGroup>
+
+For a simply-supported beam at $x = 0$ and $x = L$:
+- $w(0) = w(L) = 0$ (zero displacement)
+- $M(0) = M(L) = 0$ (zero bending moment)
+
+For a simply-supported rectangular plate, all four edges satisfy:
+- $w = 0$ (zero displacement)
+- $M_n = 0$ (zero normal bending moment)
+
+where $M_n$ is the bending moment normal to the edge.
+
+## Load Representation in Fourier Space
+
+Loads are also represented in Fourier space using the same basis functions. For a distributed load $q(x, y)$ on a plate:
+
+$$
+q(x, y) = \sum_{m=1}^{M} \sum_{n=1}^{N} Q_{mn} \sin\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right)
+$$
+
+The coefficients $Q_{mn}$ are calculated using orthogonality:
+
+$$
+Q_{mn} = \frac{4}{L_x L_y} \int_0^{L_x} \int_0^{L_y} q(x, y) \sin\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right) dx dy
+$$
+
+The library handles this computation automatically for various load types (point, line, rectangular, disk) and uses Monte-Carlo integration for arbitrary load distributions.
+
+## When to Use Navier's Method vs FEM
+
+### Use Navier's Method When:
+
+<AccordionGroup>
+  <Accordion title="You Have Simply-Supported Boundaries">
+    Navier's method is specifically designed for rectangular domains with simply-supported edges on all sides.
+  </Accordion>
+  <Accordion title="You Need Fast, Accurate Solutions">
+    Semi-analytic solutions are significantly faster than FEM for comparable accuracy, especially when evaluating results at many points.
+  </Accordion>
+  <Accordion title="You're Doing Verification or Education">
+    The closed-form nature makes it ideal for:
+    - Verifying FEM results
+    - Understanding structural behavior
+    - Teaching plate and beam theory
+    - Publishing benchmark solutions
+  </Accordion>
+  <Accordion title="You Have Regular Geometry">
+    Rectangular plates or straight beams with constant properties are ideal candidates.
+  </Accordion>
+</AccordionGroup>
+
+### Use FEM When:
+
+<Warning>
+Navier's method has important limitations:
+- **Boundary conditions**: Only simply-supported edges
+- **Geometry**: Only rectangular plates or straight beams
+- **Material properties**: Must be constant (no variation)
+- **Connections**: Cannot model joints or connections between elements
+</Warning>
+
+For clamped edges, free edges, arbitrary shapes, or material discontinuities, use finite element methods instead.
+
+## Solution Process
+
+The library follows this workflow:
+
+```mermaid
+graph LR
+    A[Define Geometry] --> B[Define Loads]
+    B --> C[Compute Load Coefficients]
+    C --> D[Assemble Stiffness Matrix]
+    D --> E[Solve for Fourier Coefficients]
+    E --> F[Evaluate Results at Points]
+```
+
+1. **Define the problem geometry** using `NavierBeam` or `NavierPlate`
+2. **Define loads** using `PointLoad`, `LineLoad`, `RectangleLoad`, or `DiskLoad`
+3. **Compute load coefficients** in Fourier space (automatic)
+4. **Assemble the stiffness matrix** based on the mechanical model
+5. **Solve the linear system** for Fourier coefficients
+6. **Evaluate results** (displacement, rotation, moment, shear, stress) at any points
+
+## Example: Simple Beam Problem
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, PointLoad
+
+# Define an Euler-Bernoulli beam
+beam = NavierBeam(
+    length=10.0,      # 10 meter beam
+    N=100,            # 100 harmonic terms
+    EI=2000.0         # Bending stiffness
+)
+
+# Apply a point load at mid-span
+load = PointLoad(
+    domain=5.0,       # At x = 5.0 m
+    value=[1000.0, 0.0]  # [Force, Moment]
+)
+
+# Solve and get results
+results = beam.linear_static_analysis(load, points=[2.5, 5.0, 7.5])
+
+# Access displacement
+print(results['w'])  # Vertical displacement at the points
+```
+
+## Performance Benefits
+
+The library is optimized for high performance:
+
+<CardGroup cols={3}>
+  <Card title="JIT Compilation" icon="bolt">
+    Core functions use Numba for near-C performance
+  </Card>
+  <Card title="Parallel Processing" icon="arrows-split">
+    Automatic parallelization across harmonic terms
+  </Card>
+  <Card title="Efficient Storage" icon="database">
+    Results stored in xarray for efficient data handling
+  </Card>
+</CardGroup>
+
+For typical problems with 100-200 harmonic terms:
+- **Solution time**: Milliseconds to seconds
+- **Memory usage**: Minimal compared to FEM
+- **Accuracy**: Controlled by number of terms $N$ (or $M \times N$ for plates)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Beam Models" icon="grip-lines" href="/concepts/beam-models">
+    Learn about Euler-Bernoulli and Timoshenko beam theories
+  </Card>
+  <Card title="Plate Models" icon="square" href="/concepts/plate-models">
+    Explore Kirchhoff-Love and Uflyand-Mindlin plate theories
+  </Card>
+  <Card title="Loads" icon="weight-hanging" href="/concepts/loads">
+    Understand how to define and work with different load types
+  </Card>
+  <Card title="Getting Started" icon="rocket" href="/installation">
+    Install the library and run your first example
+  </Card>
+</CardGroup>

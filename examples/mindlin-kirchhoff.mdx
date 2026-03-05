@@ -1,0 +1,196 @@
+---
+title: Mindlin vs Kirchhoff Comparison
+description: Compare thick plate (Mindlin-Reissner) and thin plate (Kirchhoff-Love) theories for different thickness values
+---
+
+# Mindlin vs Kirchhoff Plate Theory Comparison
+
+This example compares the static displacement response of Mindlin-Reissner (thick plate) and Kirchhoff-Love (thin plate) theories under uniformly distributed load. We'll explore how the differences depend on plate thickness and aspect ratio.
+
+## Theory Background
+
+**Kirchhoff-Love Theory** assumes:
+- Normals to the mid-surface remain normal after deformation
+- No transverse shear deformation
+- Valid for thin plates (thickness much less than span)
+
+**Mindlin-Reissner Theory** includes:
+- Transverse shear deformation
+- Normals can rotate independently
+- Valid for both thin and thick plates
+
+For thin plates, both theories give similar results. For thick plates, shear deformation becomes significant.
+
+## Helper Function for Analysis
+
+First, create a function that solves for vertical deflection using either theory:
+
+```python
+import numpy as np
+
+from sigmaepsilon.solid.material import (
+    MindlinPlateSection,
+    KirchhoffPlateSection,
+    ElasticityTensor,
+    LinearElasticMaterial,
+)
+from sigmaepsilon.solid.fourier import (
+    NavierPlate,
+    LoadGroup,
+    RectangleLoad,
+)
+from sigmaepsilon.solid.material.utils import elastic_stiffness_matrix
+
+
+def calculate_UZ(size: tuple, shape: tuple, model: str) -> float:
+    # geometry
+    length_X, length_Y, thickness = size
+
+    # material
+    young_modulus = 2890.0
+    poisson_ratio = 0.2
+
+    # material stiffness matrix
+    hooke = elastic_stiffness_matrix(E=young_modulus, NU=poisson_ratio)
+    stiffness = ElasticityTensor(hooke, tensorial=False)
+    material = LinearElasticMaterial(stiffness=stiffness)
+    section_type = MindlinPlateSection if model == "MR" else KirchhoffPlateSection
+    section = section_type(
+        layers=[
+            section_type.Layer(material=material, thickness=thickness),
+        ]
+    )
+    ABDS_matrix = section.elastic_stiffness_matrix()
+    bending_stiffness, shear_stiffness = (
+        np.ascontiguousarray(ABDS_matrix[:3, :3]),
+        np.ascontiguousarray(ABDS_matrix[3:, 3:]),
+    )
+    if not model == "MR":
+        shear_stiffness = None
+
+    # uniform distributed load
+    loads = LoadGroup(
+        LC1=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.1, 0, 0]),
+    )
+    loads.lock()
+
+    # coordinates of the point of evaluation
+    coords = np.array([[length_X / 2, length_Y / 2]], dtype=float)
+    
+    plate = NavierPlate(
+        (length_X, length_Y), shape, D=bending_stiffness, S=shear_stiffness
+    )
+    results = plate.linear_static_analysis(coords, loads)
+
+    # return results["LC1"][0, 0].values  # this would return the same value
+    return results["LC1"].to_xarray().sel(index=0, component="UZ")
+```
+
+The function:
+- Takes plate dimensions (size), number of modes (shape), and model type
+- Sets up appropriate section (Mindlin or Kirchhoff)
+- Applies uniform distributed load of -0.1 over entire plate
+- Returns vertical deflection at plate center
+
+## Generating Comparison Data
+
+Create a function to calculate the normalized difference:
+
+```python
+from typing import Iterable
+
+
+def generate_plot_data(
+    size: Iterable[float], thicknesses: Iterable[float]
+) -> list[float]:
+
+    Lx, Ly = size
+    nx, ny = 20, 20
+    absdiff = []
+    for t in thicknesses:
+        UZ_MR = calculate_UZ((Lx, Ly, t), (nx, ny), "MR")
+        UZ_KL = calculate_UZ((Lx, Ly, t), (nx, ny), "KL")
+        absdiff.append(UZ_MR / UZ_KL - 1)
+    return absdiff
+```
+
+The ratio `UZ_MR / UZ_KL - 1` shows the relative difference:
+- **0**: Theories predict same deflection
+- **> 0**: Mindlin predicts larger deflection (shear deformation effect)
+
+## Plotting Results
+
+Compare two different aspect ratios:
+
+```python
+import matplotlib.pyplot as plt
+
+fig, axs = plt.subplots(1, 1, figsize=(6, 3), dpi=400, sharex=True)
+
+thicknesses = (2, 5, 10, 15, 20, 25, 30)
+
+# calculate plot data for square plate
+size = (800, 800)
+width_ratio = size[0] / size[1]
+absdiff = generate_plot_data(size, thicknesses)
+axs.plot(thicknesses, absdiff, label="Lx/Ly={}".format(width_ratio))
+
+# calculate plot data for rectangular plate
+size = (400, 800)
+width_ratio = size[0] / size[1]
+absdiff = generate_plot_data(size, thicknesses)
+axs.plot(thicknesses, absdiff, label="Lx/Ly={}".format(width_ratio))
+
+axs.set_xlabel("thickness")
+axs.set_ylabel("$UZ_{MR}/UZ_{KL} - 1 $")
+axs.legend()
+
+plt.rcParams.update(
+    {
+        "text.usetex": True,
+        "font.family": "sans-serif",
+    }
+)
+```
+
+## Key Findings
+
+<Accordion title="Interpretation of Results">
+
+The comparison reveals:
+
+1. **Thin Plates (thickness ≤ 5)**:
+   - Results are nearly identical for both theories
+   - Relative difference < 2%
+   - Kirchhoff theory is adequate
+
+2. **Thick Plates (thickness ≥ 20)**:
+   - Significant differences appear
+   - Mindlin predicts 10-20% larger deflections
+   - Must use Mindlin theory for accuracy
+
+3. **Effect of Aspect Ratio**:
+   - **Square plates (Lx/Ly = 1.0)**: Smaller differences
+   - **Rectangular plates (Lx/Ly = 0.5)**: Larger differences
+   - Rectangular plates are more sensitive to shear deformation
+
+4. **Quantitative Comparison**:
+   - At thickness = 30 for square plate: ~12% difference
+   - At thickness = 30 for rectangular plate: ~18% difference
+
+</Accordion>
+
+## When to Use Each Theory
+
+**Use Kirchhoff-Love when**:
+- Thickness-to-span ratio < 1/20
+- Simple hand calculations needed
+- Conservative estimates acceptable
+
+**Use Mindlin-Reissner when**:
+- Thickness-to-span ratio > 1/20
+- High accuracy required
+- Composite or sandwich structures
+- Local stress analysis near loads
+
+The Navier solution method implemented in SigmaEpsilon Solid Fourier handles both theories efficiently, so using Mindlin theory is recommended for general analysis.

@@ -1,0 +1,532 @@
+---
+title: Plate Models
+description: Understanding Kirchhoff-Love and Uflyand-Mindlin (Reissner-Mindlin) plate theories
+---
+
+## Overview
+
+The library supports two classical plate theories for bending analysis of thin to moderately thick plates:
+
+<CardGroup cols={2}>
+  <Card title="Kirchhoff-Love" icon="layer-group">
+    Classical thin plate theory neglecting shear deformation
+  </Card>
+  <Card title="Uflyand-Mindlin" icon="table-cells">
+    First-order shear deformation theory (also known as Reissner-Mindlin)
+  </Card>
+</CardGroup>
+
+The choice of model is determined automatically based on whether the shear stiffness matrix (`S`) is provided.
+
+## Kirchhoff-Love Plate Theory
+
+### Theory
+
+The **Kirchhoff-Love** theory (also called **classical plate theory** or **CPT**) is based on assumptions analogous to Euler-Bernoulli beam theory:
+
+<Info>
+**Straight lines perpendicular to the mid-surface remain straight and perpendicular after deformation.**
+</Info>
+
+This implies:
+- Normals to the mid-surface remain normal (no shear deformation)
+- The thickness does not change
+- Valid for thin plates where $h/L < 0.05$ (thickness-to-span ratio)
+
+### Governing Equation
+
+The equilibrium equation for a Kirchhoff-Love plate is:
+
+$$
+\nabla^2(\mathbf{D} \nabla^2 w) = q(x, y)
+$$
+
+For an isotropic plate with constant properties:
+
+$$
+D\nabla^4 w = q(x, y)
+$$
+
+where:
+- $w(x, y)$ is the transverse displacement
+- $D$ is the bending stiffness matrix (3×3 for orthotropic materials)
+- $q(x, y)$ is the distributed load per unit area
+- $\nabla^4$ is the biharmonic operator
+
+For an **isotropic plate**:
+
+$$
+D = \frac{Eh^3}{12(1-\nu^2)}
+$$
+
+where $E$ is Young's modulus, $h$ is thickness, and $\nu$ is Poisson's ratio.
+
+### Constitutive Matrix for Orthotropic Plates
+
+The bending stiffness matrix relates curvatures to moments:
+
+$$
+\begin{bmatrix}
+M_x \\
+M_y \\
+M_{xy}
+\end{bmatrix}
+=
+\begin{bmatrix}
+D_{11} & D_{12} & 0 \\
+D_{12} & D_{22} & 0 \\
+0 & 0 & D_{66}
+\end{bmatrix}
+\begin{bmatrix}
+\kappa_x \\
+\kappa_y \\
+\kappa_{xy}
+\end{bmatrix}
+$$
+
+where:
+- $D_{11}, D_{22}$ are the bending stiffnesses in x and y directions
+- $D_{12}$ is the coupling term (related to Poisson effect)
+- $D_{66}$ is the twisting stiffness
+- $\kappa = -\frac{\partial^2 w}{\partial x^2}, -\frac{\partial^2 w}{\partial y^2}, -2\frac{\partial^2 w}{\partial x \partial y}$ are curvatures
+
+### Navier Solution for Kirchhoff-Love Plates
+
+Using the double Fourier series:
+
+$$
+w(x, y) = \sum_{m=1}^{M} \sum_{n=1}^{N} W_{mn} \sin\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right)
+$$
+
+Substituting into the governing equation yields:
+
+$$
+\left[\frac{\pi^4 m^4}{L_x^4} D_{11} + 2\frac{\pi^4 m^2 n^2}{L_x^2 L_y^2}(D_{12} + 2D_{66}) + \frac{\pi^4 n^4}{L_y^4} D_{22}\right] W_{mn} = Q_{mn}
+$$
+
+This is implemented in `preproc.py:137-173`:
+
+```python
+@njit(nogil=True, parallel=True, cache=True)
+def lhs_Navier_Kirchhoff(size: tuple, shape: tuple, D: ndarray) -> ndarray:
+    Lx, Ly = size
+    nLHS = D.shape[0]
+    M, N = shape
+    PI = np.pi
+    res = np.zeros((nLHS, M * N), dtype=D.dtype)
+    for iLHS in prange(nLHS):
+        D11, D12, D22, D66 = D[iLHS, 0, 0], D[iLHS, 0, 1], D[iLHS, 1, 1], D[iLHS, 2, 2]
+        for m in prange(1, M + 1):
+            for n in prange(1, N + 1):
+                iMN = (m - 1) * N + n - 1
+                res[iLHS, iMN] = (
+                    PI**4 * D11 * m**4 / Lx**4
+                    + 2 * PI**4 * D12 * m**2 * n**2 / (Lx**2 * Ly**2)
+                    + PI**4 * D22 * n**4 / Ly**4
+                    + 4 * PI**4 * D66 * m**2 * n**2 / (Lx**2 * Ly**2)
+                )
+    return res
+```
+
+Note the characteristic $m^4$ and $n^4$ terms from the fourth-order derivatives.
+
+### Implementation
+
+Define a Kirchhoff-Love plate by providing only the bending stiffness matrix:
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import NavierPlate, PointLoad
+
+# Material properties for isotropic plate
+E = 210e9       # Young's modulus (Pa)
+nu = 0.3        # Poisson's ratio
+h = 0.01        # Thickness (m)
+
+# Calculate bending stiffness
+D_iso = E * h**3 / (12 * (1 - nu**2))
+
+# Bending stiffness matrix for isotropic material
+D = np.array([
+    [D_iso,     nu*D_iso,  0],
+    [nu*D_iso,  D_iso,     0],
+    [0,         0,         D_iso*(1-nu)/2]
+])
+
+# Kirchhoff-Love plate (no S parameter)
+plate = NavierPlate(
+    size=(4.0, 3.0),      # Dimensions Lx × Ly (m)
+    shape=(50, 50),       # Number of Fourier terms (M, N)
+    D=D                   # Bending stiffness matrix only
+)
+
+print(plate.model_type)  # Output: KIRCHHOFF_LOVE_PLATE
+```
+
+The model type is determined automatically in `plate.py:68-73`:
+
+```python
+@property
+def model_type(self) -> MechanicalModelType:
+    """Returns the mechanical model type of the plate."""
+    if self.S is None:
+        return MechanicalModelType.KIRCHHOFF_LOVE_PLATE
+    else:
+        return MechanicalModelType.UFLYAND_MINDLIN_PLATE
+```
+
+### When to Use Kirchhoff-Love
+
+<AccordionGroup>
+  <Accordion title="Thin Plates (h/L < 0.05)">
+    For plates where thickness is small compared to span, shear deformations are negligible.
+  </Accordion>
+  <Accordion title="Stiff Materials">
+    Materials with high shear modulus relative to Young's modulus (metals, ceramics).
+  </Accordion>
+  <Accordion title="Distributed Loading">
+    Smooth, distributed loads where shear stress gradients are small.
+  </Accordion>
+  <Accordion title="Educational and Conceptual Work">
+    Simpler formulation for understanding plate behavior fundamentals.
+  </Accordion>
+</AccordionGroup>
+
+## Uflyand-Mindlin Plate Theory
+
+### Theory
+
+The **Uflyand-Mindlin** theory (commonly called **Reissner-Mindlin** or **first-order shear deformation theory**, FSDT) extends Kirchhoff-Love theory by including transverse shear deformation:
+
+<CardGroup cols={2}>
+  <Card title="Shear Deformation" icon="arrows-up-down">
+    Normals can bend due to transverse shear
+  </Card>
+  <Card title="Independent Rotations" icon="rotate">
+    Mid-surface rotations are independent of displacement gradients
+  </Card>
+</CardGroup>
+
+**Key assumption**: Straight lines perpendicular to the mid-surface remain straight but **not necessarily perpendicular** after deformation.
+
+### Governing Equations
+
+The theory introduces three independent variables:
+- $w(x, y)$: transverse displacement
+- $\theta_x(x, y)$: rotation about the y-axis
+- $\theta_y(x, y)$: rotation about the x-axis
+
+The coupled system of equations is:
+
+$$
+\begin{align}
+\nabla \cdot (\mathbf{S} \nabla w - \mathbf{S} \boldsymbol{\theta}) &= q(x,y) \\
+\nabla \cdot (\mathbf{D} \nabla \boldsymbol{\theta}) - \mathbf{S}(\nabla w - \boldsymbol{\theta}) &= \mathbf{0}
+\end{align}
+$$
+
+where:
+- $\mathbf{D}$ is the 3×3 bending stiffness matrix
+- $\mathbf{S}$ is the 2×2 shear stiffness matrix
+- $\boldsymbol{\theta} = [\theta_x, \theta_y]^T$
+
+### Constitutive Matrices
+
+The **bending stiffness matrix** $\mathbf{D}$ is the same as in Kirchhoff-Love theory.
+
+The **shear stiffness matrix** relates shear forces to shear strains:
+
+$$
+\begin{bmatrix}
+Q_x \\
+Q_y
+\end{bmatrix}
+=
+\begin{bmatrix}
+S_{44} & 0 \\
+0 & S_{55}
+\end{bmatrix}
+\begin{bmatrix}
+\gamma_{xz} \\
+\gamma_{yz}
+\end{bmatrix}
+$$
+
+For an **isotropic plate**:
+
+$$
+S_{44} = S_{55} = \kappa \frac{Eh}{2(1+\nu)}
+$$
+
+where $\kappa$ is the **shear correction factor** (typically $\kappa = 5/6$ for homogeneous plates).
+
+<Warning>
+**Always include the shear correction factor!** The factor accounts for the non-uniform shear stress distribution through the thickness.
+</Warning>
+
+### Navier Solution for Uflyand-Mindlin Plates
+
+The solution uses three sets of Fourier coefficients:
+
+$$
+\begin{align}
+w(x, y) &= \sum_{m=1}^{M} \sum_{n=1}^{N} W_{mn} \sin\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right) \\
+\theta_x(x, y) &= \sum_{m=1}^{M} \sum_{n=1}^{N} \Theta_{mn}^x \cos\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right) \\
+\theta_y(x, y) &= \sum_{m=1}^{M} \sum_{n=1}^{N} \Theta_{mn}^y \sin\left(\frac{m\pi x}{L_x}\right) \cos\left(\frac{n\pi y}{L_y}\right)
+\end{align}
+$$
+
+This results in a 3×3 system for each harmonic pair $(m, n)$, implemented in `preproc.py:76-133`:
+
+```python
+@njit(nogil=True, parallel=True, cache=True)
+def lhs_Navier_Mindlin(size: tuple, shape: tuple, D: ndarray, S: ndarray) -> ndarray:
+    Lx, Ly = size
+    nLHS = D.shape[0]
+    M, N = shape
+    PI = np.pi
+    res = np.zeros((nLHS, M * N, 3, 3), dtype=D.dtype)
+    for iLHS in prange(nLHS):
+        D11, D12, D22, D66 = D[iLHS, 0, 0], D[iLHS, 0, 1], D[iLHS, 1, 1], D[iLHS, 2, 2]
+        S44, S55 = S[iLHS, 0, 0], S[iLHS, 1, 1]
+        for m in prange(1, M + 1):
+            for n in prange(1, N + 1):
+                iMN = (m - 1) * N + n - 1
+                # Equation for w (transverse force equilibrium)
+                res[iLHS, iMN, 0, 0] = (
+                    PI**2 * S44 * n**2 / Ly**2 + PI**2 * S55 * m**2 / Lx**2
+                )
+                res[iLHS, iMN, 0, 1] = -PI * S44 * n / Ly
+                res[iLHS, iMN, 0, 2] = PI * S55 * m / Lx
+                # Equation for theta_x (moment equilibrium about y)
+                res[iLHS, iMN, 1, 0] = res[iLHS, iMN, 0, 1]
+                res[iLHS, iMN, 1, 1] = (
+                    (PI**2) * D22 * n**2 / Ly**2 + PI**2 * D66 * m**2 / Lx**2 + S44
+                )
+                res[iLHS, iMN, 1, 2] = -(PI**2) * D12 * m * n / (
+                    Lx * Ly
+                ) - PI**2 * D66 * m * n / (Lx * Ly)
+                # Equation for theta_y (moment equilibrium about x)
+                res[iLHS, iMN, 2, 0] = res[iLHS, iMN, 0, 2]
+                res[iLHS, iMN, 2, 1] = res[iLHS, iMN, 1, 2]
+                res[iLHS, iMN, 2, 2] = (
+                    PI**2 * D11 * m**2 / Lx**2 + PI**2 * D66 * n**2 / Ly**2 + S55
+                )
+    return res
+```
+
+Notice the coupling between displacement and rotations through the shear terms.
+
+### Implementation
+
+Define a Uflyand-Mindlin plate by providing both bending and shear stiffness matrices:
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import NavierPlate, PointLoad
+
+# Material properties for isotropic plate
+E = 210e9       # Young's modulus (Pa)
+G = E / (2 * (1 + 0.3))  # Shear modulus (Pa)
+nu = 0.3        # Poisson's ratio
+h = 0.05        # Thickness (m) - thicker plate
+kappa = 5/6     # Shear correction factor
+
+# Bending stiffness
+D_iso = E * h**3 / (12 * (1 - nu**2))
+D = np.array([
+    [D_iso,     nu*D_iso,  0],
+    [nu*D_iso,  D_iso,     0],
+    [0,         0,         D_iso*(1-nu)/2]
+])
+
+# Shear stiffness (with correction factor)
+S_iso = kappa * G * h
+S = np.array([
+    [S_iso, 0],
+    [0,     S_iso]
+])
+
+# Uflyand-Mindlin plate (with S parameter)
+plate = NavierPlate(
+    size=(4.0, 3.0),
+    shape=(50, 50),
+    D=D,                    # Bending stiffness matrix
+    S=S                     # Shear stiffness matrix
+)
+
+print(plate.model_type)  # Output: UFLYAND_MINDLIN_PLATE
+```
+
+### When to Use Uflyand-Mindlin
+
+<AccordionGroup>
+  <Accordion title="Thick Plates (h/L ≥ 0.05)">
+    When thickness becomes significant relative to span, shear deformations must be included.
+  </Accordion>
+  <Accordion title="Composite and Sandwich Plates">
+    Layered materials often have low transverse shear stiffness requiring FSDT.
+  </Accordion>
+  <Accordion title="Concentrated Loads">
+    Point or line loads create high local shear stresses that Kirchhoff theory cannot capture.
+  </Accordion>
+  <Accordion title="High Frequency Vibrations">
+    Shear effects become important at higher natural frequencies.
+  </Accordion>
+  <Accordion title="Accurate Stress Analysis">
+    When transverse shear stress distribution is critical for design.
+  </Accordion>
+</AccordionGroup>
+
+## Comparison: Kirchhoff-Love vs Uflyand-Mindlin
+
+### Displacement Comparison
+
+For the same loading, Uflyand-Mindlin plates show **larger deflections** due to shear deformation:
+
+$$
+w_{\text{Mindlin}} = w_{\text{Kirchhoff}} + w_{\text{shear}}
+$$
+
+The shear contribution increases with:
+- Increasing thickness-to-span ratio ($h/L$)
+- Decreasing $G/E$ ratio (softer in shear)
+- More localized loading
+
+### Example: Central Point Load Comparison
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import NavierPlate, PointLoad
+
+# Common parameters
+Lx, Ly = 2.0, 2.0
+E = 70e9
+nu = 0.3
+G = E / (2 * (1 + nu))
+h = 0.05
+P = 1000.0
+
+# Bending stiffness (same for both)
+D_iso = E * h**3 / (12 * (1 - nu**2))
+D = np.array([
+    [D_iso, nu*D_iso, 0],
+    [nu*D_iso, D_iso, 0],
+    [0, 0, D_iso*(1-nu)/2]
+])
+
+# Kirchhoff-Love plate
+plate_kl = NavierPlate(size=(Lx, Ly), shape=(50, 50), D=D)
+load = PointLoad(domain=[Lx/2, Ly/2], value=[P, 0.0, 0.0])
+results_kl = plate_kl.linear_static_analysis(load, points=[[Lx/2, Ly/2]])
+
+# Uflyand-Mindlin plate
+S = np.array([[5/6 * G * h, 0], [0, 5/6 * G * h]])
+plate_um = NavierPlate(size=(Lx, Ly), shape=(50, 50), D=D, S=S)
+results_um = plate_um.linear_static_analysis(load, points=[[Lx/2, Ly/2]])
+
+# Compare central deflection
+w_kl = results_kl['w'][0]
+w_um = results_um['w'][0]
+
+print(f"Kirchhoff-Love deflection: {w_kl*1e3:.4f} mm")
+print(f"Uflyand-Mindlin deflection: {w_um*1e3:.4f} mm")
+print(f"Shear contribution: {(w_um - w_kl)/w_kl * 100:.2f}%")
+```
+
+### Summary Table
+
+| Aspect | Kirchhoff-Love | Uflyand-Mindlin |
+|--------|----------------|------------------|
+| **Shear deformation** | Neglected | Included |
+| **Unknowns per harmonic** | 1 ($W_{mn}$) | 3 ($W_{mn}$, $\Theta_{mn}^x$, $\Theta_{mn}^y$) |
+| **Stiffness matrix** | Scalar | 3×3 matrix |
+| **Applicable range** | $h/L < 0.05$ | All $h/L$ ratios |
+| **Computational cost** | Lower | Higher |
+| **Accuracy for thick plates** | Poor | Excellent |
+| **Implementation** | `D` only | `D` + `S` |
+| **Continuity requirement** | $C^1$ (slope continuity) | $C^0$ (displacement continuity) |
+
+## Practical Recommendations
+
+<Steps>
+  <Step title="Assess Plate Thickness">
+    Calculate the thickness-to-span ratio $h/L$. If less than 0.05, Kirchhoff-Love is appropriate.
+  </Step>
+  <Step title="Consider Material Type">
+    For composites, sandwiches, or materials with low $G/E$, prefer Uflyand-Mindlin.
+  </Step>
+  <Step title="Evaluate Loading Type">
+    Concentrated loads benefit from shear deformation theory. Distributed loads are less sensitive.
+  </Step>
+  <Step title="Apply Shear Correction">
+    When using Uflyand-Mindlin, always include the appropriate $\kappa$ factor (typically 5/6).
+  </Step>
+  <Step title="Verify with Both Models">
+    Run both models for borderline cases and compare results to assess shear importance.
+  </Step>
+</Steps>
+
+## Advanced: Orthotropic Plates
+
+For orthotropic materials (e.g., fiber-reinforced composites), the stiffness matrices have the full structure:
+
+```python
+import numpy as np
+
+# Example: Unidirectional composite with fibers in x-direction
+E_x = 150e9      # Longitudinal modulus
+E_y = 10e9       # Transverse modulus
+G_xy = 5e9       # In-plane shear modulus
+G_xz = 5e9       # Transverse shear modulus (x-z plane)
+G_yz = 3e9       # Transverse shear modulus (y-z plane)
+nu_xy = 0.3      # Major Poisson's ratio
+h = 0.01         # Thickness
+
+# Compute bending stiffnesses
+nu_yx = nu_xy * E_y / E_x
+Q11 = E_x / (1 - nu_xy * nu_yx)
+Q22 = E_y / (1 - nu_xy * nu_yx)
+Q12 = nu_xy * E_y / (1 - nu_xy * nu_yx)
+Q66 = G_xy
+
+D11 = Q11 * h**3 / 12
+D22 = Q22 * h**3 / 12
+D12 = Q12 * h**3 / 12
+D66 = Q66 * h**3 / 12
+
+D = np.array([
+    [D11, D12, 0],
+    [D12, D22, 0],
+    [0,   0,   D66]
+])
+
+# Shear stiffnesses (with correction factor)
+kappa = 5/6
+S44 = kappa * G_yz * h
+S55 = kappa * G_xz * h
+
+S = np.array([
+    [S55, 0],
+    [0,   S44]
+])
+
+plate = NavierPlate(size=(3.0, 2.0), shape=(60, 40), D=D, S=S)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Beam Models" icon="grip-lines" href="/concepts/beam-models">
+    Compare with 1D beam theories: Euler-Bernoulli and Timoshenko
+  </Card>
+  <Card title="Loads" icon="weight-hanging" href="/concepts/loads">
+    Learn how to define various load types for plate problems
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/plate-concentrated">
+    See complete examples of plate analysis
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/navier-plate">
+    Detailed API documentation for NavierPlate
+  </Card>
+</CardGroup>

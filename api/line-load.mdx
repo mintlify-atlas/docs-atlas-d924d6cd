@@ -1,0 +1,184 @@
+---
+title: LineLoad
+description: Distributed loads along lines
+---
+
+## LineLoad
+
+A class to handle loads distributed over lines for both beam and plate problems.
+
+### Constructor
+
+```python
+LineLoad(
+    domain: Iterable[float] | Iterable[Iterable[float]],
+    value: Iterable[float],
+    num_mc: int | None = None
+)
+```
+
+<ParamField path="domain" type="Iterable[float] | Iterable[Iterable[float]]">
+  The line domain where the load is applied:
+  - **Beam (1D)**: An iterable `[x0, x1]` defining the start and end points along the beam
+  - **Plate (2D)**: A 2D iterable `[[x0, y0], [x1, y1]]` where the first row is the start point and the second row is the end point
+</ParamField>
+
+<ParamField path="value" type="Iterable[float]">
+  Load intensities for each degree of freedom:
+  - **Beam (1D)**: `[F, M]` where:
+    - `F` = Distributed force intensity (force per unit length)
+    - `M` = Distributed moment intensity (moment per unit length)
+  - **Plate (2D)**: `[F, Mx, My]` where:
+    - `F` = Force intensity in z-direction
+    - `Mx` = Moment intensity about x-axis
+    - `My` = Moment intensity about y-axis
+  
+  Values can be scalars (constant load) or callables (variable load distribution).
+</ParamField>
+
+<ParamField path="num_mc" type="int | None" default="None">
+  The number of sampling points for Monte Carlo integration. If no value is provided, the global config value is used. Required for variable load distributions.
+</ParamField>
+
+### Methods
+
+#### rhs()
+
+Returns the coefficients as a NumPy array.
+
+```python
+rhs(problem: NavierProblemProtocol) -> ndarray
+```
+
+<ParamField path="problem" type="NavierProblemProtocol">
+  A problem the coefficients are generated for.
+</ParamField>
+
+**Returns**: 2D float array of shape `(H, 3)`, where `H` is the total number of harmonic terms involved (defined for the problem).
+
+### Coordinate Systems and Conventions
+
+<Info>
+  For a detailed explanation of the sign conventions, refer to the [sign conventions](/concepts/loads) section of the theory guide.
+</Info>
+
+### Usage Examples
+
+#### Constant Line Load on Beam
+
+```python
+from sigmaepsilon.solid.fourier import LineLoad, NavierProblem
+
+# Uniformly distributed load over entire beam
+# 100 N/m over beam from x=0 to x=10
+load = LineLoad(
+    domain=[0.0, 10.0],  # Start and end positions
+    value=[100, 0]       # [Force intensity, Moment intensity]
+)
+
+# Partial distributed load
+# 50 N/m from x=2 to x=8
+partial_load = LineLoad(
+    domain=[2.0, 8.0],
+    value=[50, 0]
+)
+```
+
+#### Variable Line Load on Beam
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Linearly varying load (triangular distribution)
+def linear_load(x):
+    return 100 * (x / 10.0)  # Increases from 0 to 100 N/m
+
+load = LineLoad(
+    domain=[0.0, 10.0],
+    value=[linear_load, 0],
+    num_mc=100  # Number of sampling points for integration
+)
+```
+
+#### Line Load on Plate
+
+```python
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Load along a line on a plate
+# From point (1, 1) to point (3, 2) with intensity 200 N/m
+load = LineLoad(
+    domain=[[1.0, 1.0], [3.0, 2.0]],  # [start point, end point]
+    value=[200, 0, 0]                  # [F, Mx, My]
+)
+
+# Load along plate edge (y = 0, from x=0 to x=4)
+edge_load = LineLoad(
+    domain=[[0.0, 0.0], [4.0, 0.0]],
+    value=[150, 0, 0]
+)
+```
+
+#### Variable Line Load on Plate
+
+```python
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Variable load distribution along a line
+def variable_intensity(x, y):
+    return 100 * np.sin(np.pi * x / 4.0)
+
+load = LineLoad(
+    domain=[[0.0, 1.0], [4.0, 1.0]],
+    value=[variable_intensity, 0, 0],
+    num_mc=200  # Sampling points for Monte Carlo integration
+)
+```
+
+#### Using with LoadGroup
+
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, LineLoad
+
+L = 10.0
+
+# Multiple line loads in different regions
+loads = LoadGroup(
+    left_section = LineLoad(
+        domain=[0, L/3],
+        value=[100, 0]
+    ),
+    middle_section = LineLoad(
+        domain=[L/3, 2*L/3],
+        value=[150, 0]
+    ),
+    right_section = LineLoad(
+        domain=[2*L/3, L],
+        value=[100, 0]
+    )
+)
+```
+
+### When to Use LineLoad
+
+- **Distributed loads**: When load is distributed along a line rather than concentrated at points
+- **Uniform pressure**: Wind loads, snow loads, or uniform pressure along edges
+- **Variable distributions**: Loads that vary along a line (use callable values)
+- **Edge loads**: Loads applied along the edges of plates
+- **Beam loads**: Standard distributed loads on beams (uniform or varying)
+
+<Tip>
+  For constant load intensities, the library uses analytical integration for better accuracy. For variable loads (specified as callables), Monte Carlo integration is used with the number of samples controlled by `num_mc`.
+</Tip>
+
+### Load Integration Methods
+
+The `LineLoad` class automatically selects the appropriate integration method:
+
+- **Constant loads** (scalar values): Uses analytical integration (`rhs_line_const`)
+- **Variable loads** (callable functions): Uses Monte Carlo integration (`rhs_line_1d_mc` for beams, `rhs_line_2d_mc` for plates)
+
+<Info>
+  Increase `num_mc` for better accuracy when using variable load distributions. The default value is set in the global configuration.
+</Info>

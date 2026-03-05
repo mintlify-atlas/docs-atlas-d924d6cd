@@ -1,0 +1,628 @@
+---
+title: Loads and Load Cases
+description: Understanding how loads are represented in Fourier space and working with LoadGroup and LoadCase
+---
+
+## Overview
+
+The library provides a comprehensive system for defining and organizing loads for beam and plate problems. All loads are automatically transformed into **Fourier space coefficients** that match the basis functions used in Navier's method.
+
+<Info>
+The key insight of Navier's method is that both the solution and the loads are represented using the same Fourier basis functions, making the problem algebraic rather than differential.
+</Info>
+
+## Load Representation in Fourier Space
+
+### The Fourier Transform
+
+For a distributed load $q(x, y)$ on a rectangular plate, the Fourier coefficients are computed using:
+
+$$
+Q_{mn} = \frac{4}{L_x L_y} \int_0^{L_x} \int_0^{L_y} q(x, y) \sin\left(\frac{m\pi x}{L_x}\right) \sin\left(\frac{n\pi y}{L_y}\right) dx dy
+$$
+
+For beams, the 1D version is:
+
+$$
+Q_n = \frac{2}{L} \int_0^{L} q(x) \sin\left(\frac{n\pi x}{L}\right) dx
+$$
+
+The library computes these integrals **analytically** when possible, or using **Monte-Carlo integration** for arbitrary load distributions.
+
+### Why Fourier Space?
+
+Representing loads in Fourier space has several advantages:
+
+<CardGroup cols={3}>
+  <Card title="Orthogonality" icon="wave-sine">
+    Each harmonic is independent, making the system diagonal or block-diagonal
+  </Card>
+  <Card title="Efficiency" icon="bolt">
+    No need to discretize the load spatially—coefficients are computed directly
+  </Card>
+  <Card title="Accuracy" icon="bullseye">
+    Analytical integration when possible ensures high precision
+  </Card>
+</CardGroup>
+
+## Load Types
+
+The library provides several load classes, each optimized for specific geometric distributions:
+
+### Point Load
+
+A **concentrated load** applied at a single point. For plates, this can include a force and bending moments.
+
+<CodeGroup>
+```python Beam Point Load
+from sigmaepsilon.solid.fourier import PointLoad
+
+# Load at x = 3.5 m
+load = PointLoad(
+    domain=3.5,           # Position along beam
+    value=[1000.0, 50.0]  # [Force (N), Moment (N⋅m)]
+)
+```
+
+```python Plate Point Load
+from sigmaepsilon.solid.fourier import PointLoad
+
+# Load at (x, y) = (1.5, 2.0) m
+load = PointLoad(
+    domain=[1.5, 2.0],        # Position on plate
+    value=[5000.0, 0.0, 0.0]  # [Force (N), Moment_x (N⋅m), Moment_y (N⋅m)]
+)
+```
+</CodeGroup>
+
+#### Implementation
+
+For a point load $P$ at position $x_0$ on a beam, the Fourier coefficients are computed analytically:
+
+$$
+Q_n = \frac{2P}{L} \sin\left(\frac{n\pi x_0}{L}\right)
+$$
+
+This is computed in `pointload.py:31-58` using the `rhs_conc_1d` or `rhs_conc_2d` functions:
+
+```python
+def rhs(self, problem: NavierProblemProtocol) -> ndarray:
+    values = np.array(self.value, dtype=float)
+    
+    if problem.model_type.is_2d:
+        domain = np.array(self.domain, dtype=float)
+        evaluator = rhs_conc_2d
+    elif problem.model_type.is_1d:
+        domain = float(self.domain)
+        evaluator = rhs_conc_1d
+    else:
+        raise NotImplementedError
+    
+    return evaluator(problem.size, problem.shape, domain, values)
+```
+
+<Warning>
+Point loads create singularities in the stress field at the point of application. Use sufficient Fourier terms (N > 100) for accurate results near the load.
+</Warning>
+
+### Line Load
+
+A **load distributed along a line segment**. For beams, this represents a uniformly distributed load (UDL) over a portion of the beam. For plates, it represents a line load on the surface.
+
+<CodeGroup>
+```python Beam Uniform Load
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Uniform load from x = 2.0 to x = 6.0 m
+load = LineLoad(
+    domain=[2.0, 6.0],     # Start and end positions
+    value=[500.0, 0.0]     # [Distributed force (N/m), Distributed moment (N⋅m/m)]
+)
+```
+
+```python Plate Line Load
+from sigmaepsilon.solid.fourier import LineLoad
+
+# Line load from point (1.0, 1.0) to (3.0, 2.5)
+load = LineLoad(
+    domain=[[1.0, 1.0], [3.0, 2.5]],  # [Start point, End point]
+    value=[1000.0, 0.0, 0.0]          # [Force/length, Moment_x/length, Moment_y/length]
+)
+```
+</CodeGroup>
+
+#### Constant vs Variable Intensity
+
+For beams, if the load intensity is constant, the library uses **analytical integration**:
+
+$$
+Q_n = \frac{2q}{n\pi} \left[\cos\left(\frac{n\pi x_1}{L}\right) - \cos\left(\frac{n\pi x_2}{L}\right)\right]
+$$
+
+For variable intensity or plate line loads, **Monte-Carlo integration** is used (see below).
+
+The implementation in `lineload.py:39-82` automatically selects the appropriate method:
+
+```python
+def rhs(self, problem: NavierProblemProtocol) -> ndarray:
+    domain = np.array(self.domain, dtype=float)
+    values = self.value
+    n_MC = self._num_mc or Config.NUM_MC_SAMPLES_PLATE
+    
+    if problem.model_type.is_2d:
+        evaluator = partial(rhs_line_2d_mc, n_MC=n_MC)
+    elif problem.model_type.is_1d:
+        if is_scalar(values[0]) and is_scalar(values[1]):
+            values = np.array(values, dtype=float)
+            evaluator = rhs_line_const  # Analytical
+        else:
+            evaluator = partial(rhs_line_1d_mc, n_MC=n_MC)  # Monte-Carlo
+    
+    return evaluator(problem.size, problem.shape, domain, values)
+```
+
+### Rectangle Load
+
+A **load distributed over a rectangular area** on a plate. This is one of the most common loading scenarios.
+
+```python
+from sigmaepsilon.solid.fourier import RectangleLoad
+
+# Uniform pressure over a rectangular region
+load = RectangleLoad(
+    domain=[[1.0, 0.5], [2.5, 2.0]],  # [[x0, y0], [x1, y1]] - corners
+    value=[10000.0, 0.0, 0.0]         # [Pressure (Pa), Moment_x, Moment_y]
+)
+```
+
+#### Analytical Solution for Constant Load
+
+For a constant distributed load $q_0$ over a rectangle from $(x_0, y_0)$ to $(x_1, y_1)$, the Fourier coefficients are:
+
+$$
+Q_{mn} = \frac{16 q_0}{mn\pi^2} \sin\left(\frac{m\pi(x_1-x_0)}{2L_x}\right) \sin\left(\frac{n\pi(y_1-y_0)}{2L_y}\right) \cos\left(\frac{m\pi(x_1+x_0)}{2L_x}\right) \cos\left(\frac{n\pi(y_1+y_0)}{2L_y}\right)
+$$
+
+This is implemented using the `rhs_rect_const` function in the preprocessing module.
+
+For **variable load intensity** (e.g., linearly varying pressure), the library automatically switches to Monte-Carlo integration:
+
+```python
+# Linearly varying load
+import numpy as np
+
+# Define load as a function
+def pressure(x, y):
+    return 1000 * (1 + x/4)  # Increases linearly in x-direction
+
+load = RectangleLoad(
+    domain=[[0.5, 0.5], [3.5, 2.5]],
+    value=[pressure, 0.0, 0.0],  # Function for variable load
+    num_mc=10000  # Number of Monte-Carlo samples
+)
+```
+
+The implementation in `rectangleload.py:46-73` checks whether the load is symbolic:
+
+```python
+def rhs(self, problem: NavierProblemProtocol) -> ndarray:
+    domain = np.array(self.domain, dtype=float)
+    values = self.value
+    n_MC = self._num_mc or Config.NUM_MC_SAMPLES_PLATE
+    
+    has_symbolic_load = any(not isinstance(vi, (float, int)) for vi in values)
+    if has_symbolic_load:
+        return rhs_rect_mc(problem.size, problem.shape, domain, values, n_MC=n_MC)
+    else:
+        values = np.array(values, dtype=float)
+        return rhs_rect_const(problem.size, problem.shape, domain, values)
+```
+
+### Disk Load
+
+A **load distributed over a circular area** on a plate. Useful for modeling wheel loads, column footprints, or contact patches.
+
+```python
+from sigmaepsilon.solid.fourier import DiskLoad
+
+# Circular load (e.g., wheel load)
+load = DiskLoad(
+    domain=([2.0, 1.5], 0.3),    # (center [x, y], radius)
+    value=[15000.0, 0.0, 0.0]    # [Pressure, Moment_x, Moment_y]
+)
+```
+
+#### Monte-Carlo Integration
+
+Disk loads **always use Monte-Carlo integration** because there is no simple analytical formula for the Fourier coefficients of a circular region on a rectangular domain.
+
+The implementation in `diskload.py:31-51` uses the `rhs_disk_mc` function:
+
+```python
+def rhs(self, problem: NavierProblemProtocol) -> ndarray:
+    assert problem.model_type.is_2d, f"Invalid model type {problem.model_type}."
+    n_MC = self._num_mc or Config.NUM_MC_SAMPLES_PLATE
+    return rhs_disk_mc(
+        problem.size, problem.shape, self.domain, self.value, n_MC=n_MC
+    )
+```
+
+<Tip>
+For circular loads, increase `num_mc` (e.g., 20000) for better accuracy, especially for small radii relative to plate size.
+</Tip>
+
+## Monte-Carlo Integration for Arbitrary Loads
+
+### How It Works
+
+For loads that cannot be integrated analytically, the library uses **Monte-Carlo integration**:
+
+1. **Generate random points** within the load domain
+2. **Evaluate the load function** at each point
+3. **Compute the Fourier integral** using sample average:
+
+$$
+Q_{mn} \approx \frac{4 A}{N_{\text{MC}}} \sum_{i=1}^{N_{\text{MC}}} q(x_i, y_i) \sin\left(\frac{m\pi x_i}{L_x}\right) \sin\left(\frac{n\pi y_i}{L_y}\right)
+$$
+
+where $A$ is the area of the load domain and $N_{\text{MC}}$ is the number of samples.
+
+### Controlling Accuracy
+
+The number of Monte-Carlo samples can be controlled:
+
+<CodeGroup>
+```python Per-Load Basis
+load = RectangleLoad(
+    domain=[[1.0, 0.5], [2.5, 2.0]],
+    value=[pressure_function, 0.0, 0.0],
+    num_mc=50000  # High accuracy
+)
+```
+
+```python Global Configuration
+from sigmaepsilon.solid.fourier.config import Config
+
+# Set default for all loads
+Config.NUM_MC_SAMPLES_PLATE = 20000
+
+# Now all loads without explicit num_mc will use this value
+load = DiskLoad(
+    domain=([2.0, 1.5], 0.3),
+    value=[15000.0, 0.0, 0.0]
+)  # Uses 20000 samples
+```
+</CodeGroup>
+
+### Example: Arbitrary Load Function
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import NavierPlate, RectangleLoad
+
+# Define a complex load distribution
+def complex_load(x, y):
+    """Paraboloid load distribution."""
+    return 5000 * (1 - ((x - 2)**2 + (y - 1.5)**2) / 4)
+
+# Create plate
+plate = NavierPlate(
+    size=(4.0, 3.0),
+    shape=(60, 60),
+    D=[[1000, 300, 0], [300, 1000, 0], [0, 0, 350]]
+)
+
+# Apply the arbitrary load
+load = RectangleLoad(
+    domain=[[0.5, 0.5], [3.5, 2.5]],
+    value=[complex_load, 0.0, 0.0],
+    num_mc=30000  # High sample count for smooth function
+)
+
+results = plate.linear_static_analysis(load, points=[[2.0, 1.5]])
+print(f"Central deflection: {results['w'][0]:.6f} m")
+```
+
+<Info>
+Monte-Carlo integration converges as $O(1/\sqrt{N_{\text{MC}}})$, so quadrupling the sample count doubles the accuracy.
+</Info>
+
+## LoadCase and LoadGroup Organization
+
+### LoadCase
+
+A `LoadCase` represents a **single loading scenario**. It is a generic base class implemented in `loads.py:26-107`:
+
+```python
+class LoadCase(Generic[LoadDomainType, LoadValueType]):
+    def __init__(self, domain: LoadDomainType, value: LoadValueType, num_mc: int | None = None):
+        self._domain = domain
+        self._value = value
+        self._num_mc = num_mc
+    
+    @abstractmethod
+    def rhs(self, problem: NavierProblemProtocol) -> ndarray:
+        """Compute Fourier coefficients for this load case."""
+        raise NotImplementedError
+```
+
+All specific load types (`PointLoad`, `LineLoad`, etc.) inherit from `LoadCase` and implement the `rhs` method.
+
+### LoadGroup
+
+A `LoadGroup` is a **hierarchical container** for organizing multiple load cases. It inherits from `DeepDict`, allowing nested structures:
+
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, PointLoad, LineLoad
+
+loads = LoadGroup(
+    dead_load=LoadGroup(
+        self_weight=LineLoad(domain=[0, 10], value=[1000, 0]),
+        equipment=PointLoad(domain=5.0, value=[5000, 0])
+    ),
+    live_load=LoadGroup(
+        moving_load_pos1=PointLoad(domain=2.5, value=[3000, 0]),
+        moving_load_pos2=PointLoad(domain=7.5, value=[3000, 0])
+    )
+)
+```
+
+#### Accessing Load Cases
+
+The hierarchical structure allows intuitive access:
+
+```python
+# Access a specific case
+equipment_load = loads['dead_load', 'equipment']
+
+# Iterate over all cases
+for case in loads.cases():
+    print(case)
+
+# Iterate over groups
+for group in loads.groups():
+    print(group)
+```
+
+#### Result Structure Matches Load Structure
+
+When you solve a problem with a `LoadGroup`, the results have the **same hierarchical structure**:
+
+```python
+beam = NavierBeam(length=10.0, N=100, EI=2000.0)
+results = beam.linear_static_analysis(loads, points=[2.5, 5.0, 7.5])
+
+# Access results for specific load cases
+print(results['dead_load', 'equipment']['w'])  # Displacement for equipment load
+print(results['live_load', 'moving_load_pos1']['M'])  # Moment for moving load
+```
+
+This is implemented in `beam.py:188-193` and `plate.py:146-151`:
+
+```python
+result = DeepDict()
+for i, (addr, _) in enumerate(loads.items(deep=True, return_address=True)):
+    result[addr] = self._postproc_linstat_load_case_result(res[0, i, :, :])
+result.lock()
+return result
+```
+
+### Locking the Structure
+
+To prevent accidental modification:
+
+```python
+loads.lock()
+
+# Now this will raise an error:
+# loads['new_group'] = LoadGroup()  # Error!
+```
+
+## Practical Examples
+
+### Example 1: Multiple Load Cases on a Beam
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, LoadGroup, PointLoad, LineLoad
+import numpy as np
+
+# Define beam
+beam = NavierBeam(length=12.0, N=120, EI=5000.0)
+
+# Define multiple load cases
+loads = LoadGroup(
+    # Dead load: self-weight
+    DL=LineLoad(
+        domain=[0, 12.0],
+        value=[800, 0]  # 800 N/m distributed load
+    ),
+    # Live load: vehicle at position 1
+    LL1=LoadGroup(
+        front_axle=PointLoad(domain=3.0, value=[15000, 0]),
+        rear_axle=PointLoad(domain=5.0, value=[20000, 0])
+    ),
+    # Live load: vehicle at position 2
+    LL2=LoadGroup(
+        front_axle=PointLoad(domain=7.0, value=[15000, 0]),
+        rear_axle=PointLoad(domain=9.0, value=[20000, 0])
+    )
+)
+
+# Solve for all load cases
+points = np.linspace(0, 12, 121)
+results = beam.linear_static_analysis(loads, points=points)
+
+# Find maximum deflection for each case
+print(f"Dead load max deflection: {np.abs(results['DL']['w']).max():.6f} m")
+print(f"LL1 max deflection: {np.abs(results['LL1']['w']).max():.6f} m")
+print(f"LL2 max deflection: {np.abs(results['LL2']['w']).max():.6f} m")
+```
+
+### Example 2: Combined Loading on a Plate
+
+```python
+from sigmaepsilon.solid.fourier import NavierPlate, LoadGroup, PointLoad, RectangleLoad, DiskLoad
+import numpy as np
+
+# Plate properties
+E, nu, h = 200e9, 0.3, 0.02
+D_iso = E * h**3 / (12 * (1 - nu**2))
+D = np.array([[D_iso, nu*D_iso, 0], [nu*D_iso, D_iso, 0], [0, 0, D_iso*(1-nu)/2]])
+
+plate = NavierPlate(size=(6.0, 4.0), shape=(80, 80), D=D)
+
+# Complex loading scenario
+loads = LoadGroup(
+    permanent=LoadGroup(
+        floor_load=RectangleLoad(
+            domain=[[1.0, 1.0], [5.0, 3.0]],
+            value=[5000, 0, 0]  # 5 kPa uniform pressure
+        ),
+        column=PointLoad(
+            domain=[3.0, 2.0],
+            value=[-50000, 0, 0]  # 50 kN concentrated load
+        )
+    ),
+    temporary=LoadGroup(
+        equipment1=DiskLoad(
+            domain=([2.0, 1.5], 0.4),
+            value=[20000, 0, 0]  # 20 kPa over 0.4 m radius
+        ),
+        equipment2=DiskLoad(
+            domain=([4.0, 2.5], 0.3),
+            value=[15000, 0, 0]  # 15 kPa over 0.3 m radius
+        )
+    )
+)
+
+# Evaluate at grid of points
+x = np.linspace(0, 6, 31)
+y = np.linspace(0, 4, 21)
+X, Y = np.meshgrid(x, y)
+points = np.column_stack([X.ravel(), Y.ravel()])
+
+results = plate.linear_static_analysis(loads, points=points)
+
+# Access results for different load combinations
+w_permanent = results['permanent']['w']
+w_temporary = results['temporary']['w']
+
+print(f"Max deflection (permanent): {np.abs(w_permanent).max()*1000:.2f} mm")
+print(f"Max deflection (temporary): {np.abs(w_temporary).max()*1000:.2f} mm")
+```
+
+### Example 3: Evaluating Load Approximation Quality
+
+You can check how well the Fourier series approximates your load:
+
+```python
+from sigmaepsilon.solid.fourier import NavierPlate, RectangleLoad
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Define a varying load
+def varying_pressure(x, y):
+    return 10000 * np.exp(-((x-2)**2 + (y-1.5)**2) / 0.5)
+
+plate = NavierPlate(
+    size=(4.0, 3.0),
+    shape=(100, 100),  # High number of terms
+    D=[[1000, 300, 0], [300, 1000, 0], [0, 0, 350]]
+)
+
+load = RectangleLoad(
+    domain=[[0, 0], [4, 3]],
+    value=[varying_pressure, 0, 0],
+    num_mc=50000
+)
+
+# Evaluate the Fourier approximation
+x = np.linspace(0, 4, 100)
+y = np.linspace(0, 3, 75)
+X, Y = np.meshgrid(x, y)
+points = np.column_stack([X.ravel(), Y.ravel()])
+
+# Get approximated load from Fourier coefficients
+load_approx = load.eval_approx(plate, points)
+
+# Compare with original
+load_exact = varying_pressure(points[:, 0], points[:, 1])
+
+print(f"RMS error: {np.sqrt(np.mean((load_approx - load_exact)**2)):.2f} Pa")
+print(f"Max error: {np.abs(load_approx - load_exact).max():.2f} Pa")
+```
+
+The `eval_approx` method is implemented in `loads.py:78-106`:
+
+```python
+def eval_approx(self, problem: NavierProblemProtocol, points: Iterable) -> ndarray:
+    """Evaluates the Fourier series approximation of the load at the given points."""
+    if problem.model_type.is_2d:
+        length_X, length_Y = problem.size
+        number_of_modes_X, number_of_modes_Y = problem.shape
+        rhs = self.rhs(problem)
+        points = np.array(points, dtype=float)
+        return eval_loads_2d(
+            (length_X, length_Y),
+            (number_of_modes_X, number_of_modes_Y),
+            rhs,
+            points,
+        )
+    # ... similar for 1D
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choose the Right Load Type">
+    Use the most specific load type for your situation:
+    - **Concentrated forces**: `PointLoad`
+    - **Uniform over a segment/rectangle**: `LineLoad` or `RectangleLoad` with constants
+    - **Circular footprints**: `DiskLoad`
+    - **Arbitrary distributions**: Any load type with functions and high `num_mc`
+  </Accordion>
+  
+  <Accordion title="Organize Load Cases Logically">
+    Use `LoadGroup` hierarchy to organize load cases by:
+    - Load type (dead, live, wind, seismic)
+    - Load position (multiple positions of moving loads)
+    - Load combination (factored loads for design codes)
+  </Accordion>
+  
+  <Accordion title="Sufficient Fourier Terms">
+    Ensure the number of harmonic terms is adequate:
+    - **Point loads**: N ≥ 100 (higher near singularities)
+    - **Smooth distributed loads**: N ≥ 50
+    - **Sharp discontinuities**: N ≥ 150
+    
+    The solution converges, but localized effects need more terms.
+  </Accordion>
+  
+  <Accordion title="Monte-Carlo Sample Count">
+    For Monte-Carlo integration:
+    - **Default (10,000)**: Usually sufficient for smooth loads
+    - **20,000-50,000**: Better for complex or discontinuous functions
+    - **Disk loads with small radius**: Use higher counts (≥ 30,000)
+  </Accordion>
+  
+  <Accordion title="Validate Load Representation">
+    Use `eval_approx` to check that the Fourier series accurately represents your load before running the full analysis.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Examples" icon="code" href="/examples/beam-influence">
+    See complete examples demonstrating various loading scenarios
+  </Card>
+  <Card title="API Reference - Loads" icon="book" href="/api/load-group">
+    Detailed API documentation for all load types
+  </Card>
+  <Card title="Beam Models" icon="grip-lines" href="/concepts/beam-models">
+    Learn about the beam theories used with these loads
+  </Card>
+  <Card title="Plate Models" icon="square" href="/concepts/plate-models">
+    Learn about the plate theories used with these loads
+  </Card>
+</CardGroup>

@@ -1,0 +1,294 @@
+---
+title: PlateLoadCaseResultLinStat
+description: Result container for linear static plate analysis
+---
+
+## Overview
+
+The `PlateLoadCaseResultLinStat` class stores results of linear static analysis for plates for a single load case. It provides structured access to displacement, rotation, curvature, strain, moment, and shear force components at evaluation points across the plate.
+
+## Class Definition
+
+```python
+from sigmaepsilon.solid.fourier import PlateLoadCaseResultLinStat
+
+result = PlateLoadCaseResultLinStat(data, name="Load Case 1")
+```
+
+<ParamField path="data" type="numpy.ndarray" required>
+  2D array where rows represent evaluation points and columns represent result components
+</ParamField>
+
+<ParamField path="name" type="str | None">
+  Optional name for the load case
+</ParamField>
+
+## Result Components
+
+The underlying data structure is a 2D NumPy array where:
+- **First axis**: Points of evaluation across the plate
+- **Second axis**: Result components (13 total)
+
+### Displacement
+
+<ResponseField name="UZ" type="float">
+  Displacement in Z direction
+</ResponseField>
+
+### Rotations
+
+<ResponseField name="ROTX" type="float">
+  Rotation around X axis (counter-clockwise)
+</ResponseField>
+
+<ResponseField name="ROTY" type="float">
+  Rotation around Y axis (counter-clockwise)
+</ResponseField>
+
+### Curvatures (Strain Components)
+
+<ResponseField name="CX" type="float">
+  Curvature related to bending around X axis (strain component)
+</ResponseField>
+
+<ResponseField name="CY" type="float">
+  Curvature related to bending around Y axis (strain component)
+</ResponseField>
+
+<ResponseField name="CXY" type="float">
+  Twisting curvature (strain component)
+</ResponseField>
+
+### Shear Strains (Strain Components)
+
+<ResponseField name="EXZ" type="float">
+  Engineering shear strain in X-Z plane (strain component)
+</ResponseField>
+
+<ResponseField name="EYZ" type="float">
+  Engineering shear strain in Y-Z plane (strain component)
+</ResponseField>
+
+### Moments
+
+<ResponseField name="MX" type="float">
+  Bending moment around Y axis (counter-clockwise)
+</ResponseField>
+
+<ResponseField name="MY" type="float">
+  Bending moment around X axis (clockwise)
+</ResponseField>
+
+<ResponseField name="MXY" type="float">
+  Twisting moment
+</ResponseField>
+
+### Shear Forces
+
+<ResponseField name="QX" type="float">
+  Shear force on the X-Z plane (positive Z direction)
+</ResponseField>
+
+<ResponseField name="QY" type="float">
+  Shear force on the Y-Z plane (positive Z direction)
+</ResponseField>
+
+## Properties
+
+### data
+
+```python
+result.data
+```
+
+Returns the results as a `numpy.ndarray`.
+
+**Returns:** `numpy.ndarray` - Full result array with shape `(n_points, 13)`
+
+### values
+
+```python
+result.values
+```
+
+Alias for `data`. Returns the results as a `numpy.ndarray`.
+
+**Returns:** `numpy.ndarray` - Full result array with shape `(n_points, 13)`
+
+### strains
+
+```python
+result.strains
+```
+
+Returns only the strain components (CX, CY, CXY, EXZ, EYZ) as a `numpy.ndarray`.
+
+**Returns:** `numpy.ndarray` - Strain array with shape `(n_points, 5)` containing columns [CX, CY, CXY, EXZ, EYZ]
+
+### name
+
+```python
+result.name
+result.name = "New Load Case Name"
+```
+
+Gets or sets the name of the load case.
+
+**Returns:** `str | None`
+
+## Methods
+
+### to_xarray()
+
+```python
+result.to_xarray()
+```
+
+Converts the results to an xarray DataArray with labeled dimensions and coordinates.
+
+**Returns:** `xarray.DataArray` with:
+- Dimension `index`: Evaluation point indices
+- Dimension `component`: Component names ["UZ", "ROTX", "ROTY", "CX", "CY", "CXY", "EXZ", "EYZ", "MX", "MY", "MXY", "QX", "QY"]
+- Name: The load case name if set
+
+### to_pandas()
+
+```python
+result.to_pandas()
+```
+
+Converts the results to a pandas DataFrame with component names as column headers.
+
+**Returns:** `pandas.DataFrame` with:
+- Index: Evaluation point indices (named "index")
+- Columns: ["UZ", "ROTX", "ROTY", "CX", "CY", "CXY", "EXZ", "EYZ", "MX", "MY", "MXY", "QX", "QY"]
+
+## Usage Examples
+
+### Accessing Result Data
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import PlateLoadCaseResultLinStat
+
+# Create result object
+data = np.array([
+    [0.0, 0.0, 0.0, 0.1, 0.1, 0.05, 0.02, 0.02, 10.0, 10.0, 5.0, 2.0, 2.0],  # Point 0
+    [0.5, 0.01, 0.01, 0.2, 0.15, 0.06, 0.03, 0.025, 15.0, 12.0, 6.0, 2.5, 2.2],  # Point 1
+    [1.0, 0.02, 0.015, 0.15, 0.12, 0.04, 0.025, 0.02, 12.0, 11.0, 5.5, 2.2, 2.1],  # Point 2
+])
+result = PlateLoadCaseResultLinStat(data, name="Uniform Pressure")
+
+# Access full data
+print(result.data)  # All 13 components
+print(result.values)  # Same as data
+
+# Access strain components only
+strains = result.strains  # Returns columns [CX, CY, CXY, EXZ, EYZ]
+```
+
+### Converting to xarray
+
+```python
+# Convert to xarray for labeled access
+xr_data = result.to_xarray()
+
+# Access specific components
+deflection = xr_data.sel(component="UZ")
+moment_x = xr_data.sel(component="MX")
+moment_y = xr_data.sel(component="MY")
+twist = xr_data.sel(component="MXY")
+
+# Access specific points
+point_10 = xr_data.sel(index=10)
+
+# Access rotations
+rotations = xr_data.sel(component=["ROTX", "ROTY"])
+```
+
+### Converting to pandas
+
+```python
+# Convert to DataFrame for analysis
+df = result.to_pandas()
+
+# Access by column name
+deflections = df["UZ"]
+moments_x = df["MX"]
+moments_y = df["MY"]
+shear_x = df["QX"]
+shear_y = df["QY"]
+
+# Statistical analysis
+max_deflection = df["UZ"].max()
+max_moment = max(df["MX"].max(), df["MY"].max())
+max_twist = df["MXY"].abs().max()
+```
+
+### Analyzing Strain Distribution
+
+```python
+# Extract strain components
+strains = result.strains
+
+# Or use pandas for labeled access
+df = result.to_pandas()
+curvatures = df[["CX", "CY", "CXY"]]
+shear_strains = df[["EXZ", "EYZ"]]
+
+# Find maximum curvature
+max_curvature_x = df["CX"].max()
+max_curvature_y = df["CY"].max()
+```
+
+### Working with Multiple Load Cases
+
+```python
+# Store results from multiple load cases
+load_cases = {}
+for i, data in enumerate(analysis_results):
+    result = PlateLoadCaseResultLinStat(data, name=f"Load Case {i+1}")
+    load_cases[result.name] = result
+
+# Compare results
+for name, result in load_cases.items():
+    df = result.to_pandas()
+    print(f"{name}:")
+    print(f"  Max deflection: {df['UZ'].max():.6f}")
+    print(f"  Max moment MX: {df['MX'].max():.2f}")
+    print(f"  Max moment MY: {df['MY'].max():.2f}")
+    print(f"  Max shear QX: {df['QX'].max():.2f}")
+    print(f"  Max shear QY: {df['QY'].max():.2f}")
+```
+
+### Visualizing Results with xarray
+
+```python
+# Convert to xarray for easy plotting
+xr_data = result.to_xarray()
+
+# Plot deflection profile
+import matplotlib.pyplot as plt
+
+deflection = xr_data.sel(component="UZ")
+deflection.plot()
+plt.title("Deflection Profile")
+plt.xlabel("Point Index")
+plt.ylabel("Deflection (UZ)")
+plt.show()
+
+# Compare moments
+moments = xr_data.sel(component=["MX", "MY", "MXY"])
+moments.plot.line(x="index", hue="component")
+plt.title("Moment Distribution")
+plt.show()
+```
+
+## Sign Conventions
+
+For detailed explanations of the sign conventions used for plate analysis, refer to the theory guide.
+
+## See Also
+
+- [BeamLoadCaseResultLinStat](/api/beam-result) - Result container for beam analysis
+- [Plate Analysis Guide](/guides/plate-analysis) - Working with plate structures

@@ -1,0 +1,206 @@
+---
+title: RectangleLoad
+description: Distributed loads over rectangular regions
+---
+
+## RectangleLoad
+
+A class to handle loads defined over a single rectangular region on plates. Only applicable to 2D plate problems.
+
+### Constructor
+
+```python
+RectangleLoad(
+    domain: Iterable[Iterable[float]],
+    value: Iterable[float],
+    num_mc: int | None = None
+)
+```
+
+<ParamField path="domain" type="Iterable[Iterable[float]]">
+  The coordinates of the lower-left and upper-right points of the rectangular region: `[[x0, y0], [x1, y1]]` where:
+  - `[x0, y0]` = Lower-left corner coordinates
+  - `[x1, y1]` = Upper-right corner coordinates
+</ParamField>
+
+<ParamField path="value" type="Iterable[float]">
+  Load intensities for each degree of freedom in the order `[f_z, m_x, m_y]`:
+  - `f_z` = Pressure (force per unit area) in z-direction
+  - `m_x` = Distributed moment intensity about x-axis
+  - `m_y` = Distributed moment intensity about y-axis
+  
+  Values can be scalars (constant load) or callables (variable load distribution).
+</ParamField>
+
+<ParamField path="num_mc" type="int | None" default="None">
+  The number of sampling points for Monte Carlo integration. If no value is provided, the global config value is used. Required for variable (symbolic) load distributions.
+</ParamField>
+
+### Properties
+
+#### region
+
+Returns the region as a list of 4 values `[x0, y0, w, h]`:
+
+```python
+@property
+region -> Iterable
+```
+
+- `x0`, `y0` = Coordinates of the bottom-left corner
+- `w` = Width of the rectangle
+- `h` = Height of the rectangle
+
+### Methods
+
+#### rhs()
+
+Returns the coefficients as a NumPy array.
+
+```python
+rhs(problem: NavierProblemProtocol) -> ndarray
+```
+
+<ParamField path="problem" type="NavierProblemProtocol">
+  A problem the coefficients are generated for. Must be a 2D plate problem.
+</ParamField>
+
+**Returns**: 2D float array of shape `(H, 3)`, where `H` is the total number of harmonic terms involved (defined for the problem).
+
+<Warning>
+  This load type is only valid for 2D plate problems. An assertion error will be raised if used with 1D beam problems.
+</Warning>
+
+### Coordinate Systems and Conventions
+
+<Info>
+  For a detailed explanation of the sign conventions, refer to the [plate sign conventions](/concepts/loads) section of the theory guide.
+</Info>
+
+### Usage Examples
+
+#### Uniform Rectangular Pressure
+
+```python
+from sigmaepsilon.solid.fourier import RectangleLoad, NavierProblem
+
+# Uniform pressure over a rectangular region
+# 1000 Pa (N/m²) from (1,1) to (3,2)
+load = RectangleLoad(
+    domain=[[1.0, 1.0], [3.0, 2.0]],  # [lower-left, upper-right]
+    value=[1000, 0, 0]                 # [pressure, Mx, My]
+)
+
+# Pressure over entire plate (4m x 3m)
+full_load = RectangleLoad(
+    domain=[[0.0, 0.0], [4.0, 3.0]],
+    value=[500, 0, 0]
+)
+```
+
+#### Partial Rectangular Load
+
+```python
+from sigmaepsilon.solid.fourier import RectangleLoad
+
+# Load on a portion of the plate
+# Representing a concentrated equipment load area
+equipment_load = RectangleLoad(
+    domain=[[1.5, 1.0], [2.5, 2.0]],  # 1m x 1m area
+    value=[2000, 0, 0]                 # 2000 N/m²
+)
+```
+
+#### Variable Rectangular Load
+
+```python
+import numpy as np
+from sigmaepsilon.solid.fourier import RectangleLoad
+
+# Variable pressure distribution (e.g., hydrostatic)
+def hydrostatic_pressure(x, y):
+    return 1000 * y  # Pressure increases with y
+
+load = RectangleLoad(
+    domain=[[0.0, 0.0], [4.0, 3.0]],
+    value=[hydrostatic_pressure, 0, 0],
+    num_mc=500  # Sampling points for Monte Carlo integration
+)
+
+# Sinusoidal pressure distribution
+def sinusoidal_load(x, y):
+    return 1000 * np.sin(np.pi * x / 4.0) * np.sin(np.pi * y / 3.0)
+
+load = RectangleLoad(
+    domain=[[0.0, 0.0], [4.0, 3.0]],
+    value=[sinusoidal_load, 0, 0],
+    num_mc=500
+)
+```
+
+#### Multiple Rectangular Loads
+
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, RectangleLoad
+
+# Different loads on different areas of the plate
+loads = LoadGroup(
+    zone1 = RectangleLoad(
+        domain=[[0.0, 0.0], [2.0, 3.0]],
+        value=[800, 0, 0]
+    ),
+    zone2 = RectangleLoad(
+        domain=[[2.0, 0.0], [4.0, 3.0]],
+        value=[1200, 0, 0]
+    ),
+    local_load = RectangleLoad(
+        domain=[[1.5, 1.0], [2.5, 2.0]],
+        value=[3000, 0, 0]
+    )
+)
+```
+
+#### Rectangle with Moments
+
+```python
+from sigmaepsilon.solid.fourier import RectangleLoad
+
+# Distributed moment over a region
+load = RectangleLoad(
+    domain=[[1.0, 1.0], [3.0, 2.0]],
+    value=[0, 100, 50]  # [pressure, Mx, My]
+)
+```
+
+### When to Use RectangleLoad
+
+- **Area loads**: When load is distributed over a rectangular area
+- **Uniform pressure**: Floor loads, snow loads, or equipment loads over defined areas
+- **Patch loads**: Localized loads that cover a rectangular region
+- **Foundation loads**: Distributed loads from supports or foundations
+- **Variable pressure**: Loads that vary spatially over a rectangular region
+
+### Load Integration Methods
+
+The `RectangleLoad` class automatically selects the appropriate integration method:
+
+- **Constant loads** (scalar values): Uses analytical integration (`rhs_rect_const`)
+- **Variable loads** (callable functions): Uses Monte Carlo integration (`rhs_rect_mc`)
+
+<Tip>
+  For constant uniform pressures, analytical integration provides exact results. For variable loads, increase `num_mc` to improve accuracy. The default value is controlled by `Config.NUM_MC_SAMPLES_PLATE`.
+</Tip>
+
+### Accessing Region Information
+
+```python
+load = RectangleLoad(
+    domain=[[1.0, 2.0], [5.0, 6.0]],
+    value=[1000, 0, 0]
+)
+
+# Get region as [x0, y0, width, height]
+x0, y0, w, h = load.region
+print(f"Rectangle at ({x0}, {y0}) with size {w} x {h}")
+# Output: Rectangle at (1.0, 2.0) with size 4.0 x 4.0
+```

@@ -1,0 +1,118 @@
+---
+title: Introduction
+description: Learn about SigmaEpsilon Solid Fourier and when to use it for beam and plate bending analysis
+---
+
+# Introduction
+
+The **SigmaEpsilon Solid Fourier** library provides semi-analytic solutions for beam and plate bending problems using Navier's method. By carefully choosing approximating functions that inherently satisfy boundary conditions, the library delivers fast, accurate results for simply-supported structures.
+
+## What is SigmaEpsilon Solid Fourier?
+
+This library solves structural mechanics problems for:
+- **Beams**: Euler-Bernoulli and Timoshenko models
+- **Plates**: Kirchhoff-Love and Mindlin-Reissner models
+
+Unlike finite element methods that discretize the entire domain, Navier's method uses Fourier series to represent the displacement field, resulting in significantly faster calculations when applicable.
+
+## When to Use This Library
+
+SigmaEpsilon Solid Fourier is particularly valuable for:
+
+<Steps>
+  <Step title="Verification">
+    Validate finite element models or other numerical solutions against semi-analytic benchmarks
+  </Step>
+  
+  <Step title="Education">
+    Teach structural mechanics concepts with immediate visual feedback and exact solutions
+  </Step>
+  
+  <Step title="Fast Analysis">
+    Perform rapid parametric studies without the computational cost of full FEA
+  </Step>
+  
+  <Step title="Experimentation">
+    Quickly test different loading conditions and material configurations
+  </Step>
+  
+  <Step title="Concept Validation">
+    Validate theoretical predictions before investing in more complex simulations
+  </Step>
+</Steps>
+
+<Warning>
+This library is limited to simply-supported boundary conditions. For other boundary conditions (clamped, free, or mixed), you'll need finite element analysis or other numerical methods.
+</Warning>
+
+## Key Features
+
+- **Semi-analytic Solutions**: Fast and accurate results for beam and plate bending
+- **Multiple Load Types**: Support for point loads, line loads, rectangular loads, and disk loads
+- **Arbitrary Loading**: Monte-Carlo based coefficient determination for complex load distributions
+- **High Performance**: Industry-grade parallel computing for rapid calculations
+- **Python Integration**: Seamless integration with NumPy, SciPy, xarray, and other scientific libraries
+- **Visualization Ready**: Built-in examples for Matplotlib plotting
+- **Both Beam Models**: Euler-Bernoulli (without shear deformation) and Timoshenko (with shear deformation)
+- **Both Plate Models**: Kirchhoff-Love (thin plates) and Mindlin-Reissner (thick plates)
+
+## Navier's Method Overview
+
+Navier's method solves bending problems by representing the displacement field as a double Fourier series:
+
+<Info>
+For a simply-supported rectangular plate, the deflection is approximated as:
+
+```
+w(x, y) = Σ Σ W_mn · sin(mπx/a) · sin(nπy/b)
+```
+
+where:
+- `W_mn` are the unknown Fourier coefficients
+- `m, n` are harmonic indices
+- `a, b` are the plate dimensions
+</Info>
+
+The sine functions automatically satisfy the simply-supported boundary conditions (zero displacement and zero moment at edges). The unknown coefficients are determined by:
+
+1. Substituting the series into the governing differential equation
+2. Expanding the load as a Fourier series
+3. Solving the resulting algebraic system
+
+<Tip>
+The accuracy of the solution depends on the number of harmonic terms included. More terms capture finer details but increase computation time. Typically, 50-100 terms provide excellent accuracy for most engineering applications.
+</Tip>
+
+## Theory Background
+
+### Beam Models
+
+**Euler-Bernoulli Beam**: Assumes plane sections remain plane and perpendicular to the neutral axis. Suitable for slender beams where shear deformation is negligible.
+
+**Timoshenko Beam**: Accounts for shear deformation and rotational inertia. Required for thick or short beams, or when shear flexibility is significant.
+
+### Plate Models
+
+**Kirchhoff-Love Plate**: Classical thin plate theory assuming normals to the mid-surface remain straight and normal after deformation. Valid when thickness `t` is small compared to lateral dimensions (t/a < 1/20).
+
+**Mindlin-Reissner Plate**: Accounts for transverse shear deformation. Necessary for thick plates or when accurate shear stress distribution is required.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the library and its dependencies
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run your first beam and plate analysis
+  </Card>
+  
+  <Card title="User Guide" icon="book" href="/concepts/overview">
+    Learn about loads, materials, and analysis
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/navier-beam">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,299 @@
+---
+title: Plate Analysis
+description: Complete workflow for analyzing simply-supported rectangular plates using Navier's method
+---
+
+## Overview
+
+The `NavierPlate` class provides semi-analytic solutions for simply-supported rectangular plates using double Fourier series expansion. The library supports both Kirchhoff-Love and Mindlin-Reissner (Uflyand-Mindlin) plate theories.
+
+## Plate Theory Selection
+
+The plate model is automatically selected based on the stiffness matrices you provide:
+
+- **Kirchhoff-Love**: Only bending stiffness matrix (`D`) is provided
+- **Mindlin-Reissner**: Both bending stiffness (`D`) and shear stiffness (`S`) matrices are provided
+
+## Complete Workflow
+
+<Steps>
+  <Step title="Import required modules">
+    ```python
+    from sigmaepsilon.solid.fourier import (
+        NavierPlate,
+        LoadGroup,
+        PointLoad,
+        RectangleLoad,
+    )
+    from sigmaepsilon.solid.material import MindlinPlateSection
+    from sigmaepsilon.solid.material import (
+        ElasticityTensor,
+        LinearElasticMaterial,
+    )
+    from sigmaepsilon.solid.material.utils import elastic_stiffness_matrix
+    from sigmaepsilon.math.linalg import ReferenceFrame
+    import numpy as np
+    ```
+  </Step>
+
+  <Step title="Define geometry and material properties">
+    ```python
+    # Geometry
+    length_X, length_Y = 600.0, 800.0
+    thickness = 25.0
+
+    # Material properties
+    young_modulus = 2890.0
+    poisson_ratio = 0.2
+    ```
+  </Step>
+
+  <Step title="Set up material and section stiffness">
+    ```python
+    # Create Hooke's law matrix
+    hooke = elastic_stiffness_matrix(E=young_modulus, NU=poisson_ratio)
+    frame = ReferenceFrame(dim=3)
+    stiffness = ElasticityTensor(hooke, frame=frame, tensorial=False)
+    material = LinearElasticMaterial(stiffness=stiffness)
+
+    # Create plate section
+    section = MindlinPlateSection(
+        layers=[
+            MindlinPlateSection.Layer(material=material, thickness=thickness),
+        ]
+    )
+
+    # Extract stiffness matrices
+    ABDS_matrix = section.elastic_stiffness_matrix()
+    bending_stiffness = np.ascontiguousarray(ABDS_matrix[:3, :3])  # D matrix (3x3)
+    shear_stiffness = np.ascontiguousarray(ABDS_matrix[3:, 3:])    # S matrix (2x2)
+    ```
+  </Step>
+
+  <Step title="Create the plate model">
+    **Kirchhoff-Love Plate:**
+    ```python
+    number_of_modes_X = 20
+    number_of_modes_Y = 20
+
+    plate = NavierPlate(
+        (length_X, length_Y),
+        (number_of_modes_X, number_of_modes_Y),
+        D=bending_stiffness
+    )
+    ```
+
+    **Mindlin-Reissner Plate:**
+    ```python
+    plate = NavierPlate(
+        (length_X, length_Y),
+        (number_of_modes_X, number_of_modes_Y),
+        D=bending_stiffness,
+        S=shear_stiffness
+    )
+    ```
+  </Step>
+
+  <Step title="Define loads">
+    **Concentrated load at center:**
+    ```python
+    load_position = np.array([length_X / 2, length_Y / 2])
+    load_value = np.array([-100.0, 0.0, 0.0])  # [Force_Z, Moment_X, Moment_Y]
+
+    loads = LoadGroup(
+        LC=PointLoad(load_position, load_value)
+    )
+    ```
+
+    **Uniformly distributed load:**
+    ```python
+    loads = LoadGroup(
+        LC1=RectangleLoad(
+            [[0, 0], [length_X, length_Y]], 
+            [-0.1, 0, 0]  # Uniform pressure
+        )
+    )
+    ```
+  </Step>
+
+  <Step title="Define evaluation points">
+    ```python
+    # Single point at center
+    evaluation_points = np.array([[length_X / 2, length_Y / 2]])
+
+    # Or create a grid of points
+    nx, ny = 150, 200
+    x = np.linspace(0, length_X, nx)
+    y = np.linspace(0, length_Y, ny)
+    xv, yv = np.meshgrid(x, y)
+    evaluation_points = np.stack((xv.flatten(), yv.flatten()), axis=1)
+    ```
+  </Step>
+
+  <Step title="Solve and extract results">
+    ```python
+    # Perform analysis
+    results = plate.linear_static_analysis(evaluation_points, loads)
+
+    # Access results for load case
+    lc_results = results["LC"]
+    ```
+  </Step>
+
+  <Step title="Access specific result quantities">
+    ```python
+    # Convert to xarray for easy access
+    result_array = results["LC"].to_xarray()
+
+    # Extract components at first point
+    deflection = float(result_array.sel(index=0, component="UZ"))
+    rotation_x = float(result_array.sel(index=0, component="ROTX"))
+    rotation_y = float(result_array.sel(index=0, component="ROTY"))
+    moment_x = float(result_array.sel(index=0, component="MX"))
+    moment_y = float(result_array.sel(index=0, component="MY"))
+    shear_x = float(result_array.sel(index=0, component="QX"))
+    shear_y = float(result_array.sel(index=0, component="QY"))
+    ```
+  </Step>
+</Steps>
+
+## Comparing Plate Theories
+
+Here's an example comparing Kirchhoff-Love and Mindlin-Reissner results:
+
+```python
+from sigmaepsilon.solid.material import KirchhoffPlateSection
+
+def calculate_deflection(size, shape, model_type):
+    """Calculate center deflection for given plate theory."""
+    length_X, length_Y, thickness = size
+    
+    # Material setup
+    young_modulus = 2890.0
+    poisson_ratio = 0.2
+    hooke = elastic_stiffness_matrix(E=young_modulus, NU=poisson_ratio)
+    stiffness = ElasticityTensor(hooke, tensorial=False)
+    material = LinearElasticMaterial(stiffness=stiffness)
+    
+    # Choose section type
+    section_type = MindlinPlateSection if model_type == "MR" else KirchhoffPlateSection
+    section = section_type(
+        layers=[section_type.Layer(material=material, thickness=thickness)]
+    )
+    
+    # Extract stiffness
+    ABDS_matrix = section.elastic_stiffness_matrix()
+    bending_stiffness = np.ascontiguousarray(ABDS_matrix[:3, :3])
+    shear_stiffness = None if model_type == "KL" else np.ascontiguousarray(ABDS_matrix[3:, 3:])
+    
+    # Create plate
+    plate = NavierPlate(
+        (length_X, length_Y), 
+        shape, 
+        D=bending_stiffness, 
+        S=shear_stiffness
+    )
+    
+    # Uniform load
+    loads = LoadGroup(
+        LC1=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.1, 0, 0])
+    )
+    
+    # Evaluate at center
+    coords = np.array([[length_X / 2, length_Y / 2]])
+    results = plate.linear_static_analysis(coords, loads)
+    
+    return results["LC1"].to_xarray().sel(index=0, component="UZ")
+
+# Compare theories
+size = (800, 800, 25)
+shape = (20, 20)
+
+uz_mindlin = calculate_deflection(size, shape, "MR")
+uz_kirchhoff = calculate_deflection(size, shape, "KL")
+
+print(f"Mindlin-Reissner: {uz_mindlin:.4f}")
+print(f"Kirchhoff-Love: {uz_kirchhoff:.4f}")
+print(f"Difference: {(uz_mindlin/uz_kirchhoff - 1)*100:.2f}%")
+```
+
+## Available Result Components
+
+The plate analysis returns the following components at each evaluation point:
+
+| Component | Description |
+|-----------|-------------|
+| `UZ` | Displacement in Z direction (deflection) |
+| `ROTX` | Rotation around X axis (counterclockwise) |
+| `ROTY` | Rotation around Y axis (counterclockwise) |
+| `CX` | Curvature related to bending around X axis |
+| `CY` | Curvature related to bending around Y axis |
+| `CXY` | Twisting curvature |
+| `EXZ` | Engineering shear strain in X-Z plane |
+| `EYZ` | Engineering shear strain in Y-Z plane |
+| `MX` | Bending moment around Y axis (counterclockwise) |
+| `MY` | Bending moment around X axis (clockwise) |
+| `MXY` | Twisting moment |
+| `QX` | Shear force on the X-Z plane (+Z) |
+| `QY` | Shear force on the Y-Z plane (+Z) |
+
+## Working with Grid Results
+
+When evaluating on a grid, results can be reshaped for visualization:
+
+```python
+# Create grid
+nx, ny = 150, 200
+x = np.linspace(0, length_X, nx)
+y = np.linspace(0, length_Y, ny)
+xv, yv = np.meshgrid(x, y)
+evaluation_points = np.stack((xv.flatten(), yv.flatten()), axis=1)
+
+# Solve
+results = plate.linear_static_analysis(evaluation_points, loads)
+
+# Get deflection and reshape to grid
+deflection = results["LC"].values[:, 0]  # UZ is first component
+deflection_grid = deflection.reshape((ny, nx))
+
+# Now deflection_grid can be plotted with matplotlib or other tools
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Choosing the number of modes">
+    The number of modes affects accuracy and computation time:
+    
+    - **Low resolution** (10×10): Fast, suitable for preliminary analysis
+    - **Medium resolution** (20×20): Good balance for most applications
+    - **High resolution** (40×40 or higher): High accuracy, concentrated loads
+    
+    Use more modes in the longer direction for rectangular plates.
+  </Accordion>
+
+  <Accordion title="When to use Mindlin-Reissner theory">
+    Use Mindlin-Reissner (Uflyand-Mindlin) theory when:
+    - The plate is thick (thickness/span > 1/20)
+    - Shear deformation is significant
+    - High accuracy is required for thick plates
+
+    Use Kirchhoff-Love theory when:
+    - The plate is thin (thickness/span < 1/100)
+    - Computational efficiency is important
+    - Shear deformation is negligible
+  </Accordion>
+
+  <Accordion title="Evaluation point density">
+    For visualization:
+    - Use 100-200 points per direction for smooth contour plots
+    - Can be independent of the number of modes
+    - Higher density improves plot quality but increases computation time
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- Learn about [Load Definition](/guides/load-definition) for complex loading patterns
+- Explore [Postprocessing](/guides/postprocessing) for stress analysis and visualization
+- See [Beam Analysis](/guides/beam-analysis) for 1D structural analysis

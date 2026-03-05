@@ -1,0 +1,167 @@
+---
+title: Plate with Concentrated Load
+description: Analyze a Mindlin plate under concentrated point load and calculate stress utilization
+---
+
+# Plate with Concentrated Load
+
+This example shows how to analyze a Mindlin-Reissner plate subjected to a concentrated point load. We'll calculate deflections, strains, stresses, and utilization factors, then save the results to disk.
+
+## Problem Setup
+
+Define the plate geometry, material properties, and load:
+
+```python
+import ast
+import numpy as np
+
+from sigmaepsilon.math.linalg import ReferenceFrame
+from sigmaepsilon.solid.material import MindlinPlateSection as Section
+from sigmaepsilon.solid.material import (
+    ElasticityTensor,
+    LinearElasticMaterial,
+    HuberMisesHenckyFailureCriterion_SP,
+)
+from sigmaepsilon.solid.material.utils import elastic_stiffness_matrix
+from sigmaepsilon.solid.fourier import (
+    NavierPlate,
+    LoadGroup,
+    PointLoad,
+)
+
+# geometry
+length_X, length_Y = (600.0, 800.0)
+thickness = 25.0
+
+# material properties
+young_modulus = 2890.0
+poisson_ratio = 0.2
+yield_strength = 2.0
+
+# solution parameters
+number_of_modes_X = 20
+number_of_modes_Y = 20
+
+# concentrated load
+load_position = (300.0, 400.0)
+load_value = (-100, 0, 0)
+```
+
+## Material and Section Stiffness
+
+Set up the elastic material model with failure criterion:
+
+```python
+# setting up hooke's law
+hooke = elastic_stiffness_matrix(E=young_modulus, NU=poisson_ratio)
+frame = ReferenceFrame(dim=3)
+stiffness = ElasticityTensor(hooke, frame=frame, tensorial=False)
+failure_model = HuberMisesHenckyFailureCriterion_SP(yield_strength=yield_strength)
+material = LinearElasticMaterial(stiffness=stiffness, failure_model=failure_model)
+
+# section stiffness
+section = Section(
+    layers=[
+        Section.Layer(material=material, thickness=thickness),
+    ]
+)
+ABDS_matrix = section.elastic_stiffness_matrix()
+bending_stiffness, shear_stiffness = (
+    np.ascontiguousarray(ABDS_matrix[:3, :3]),
+    np.ascontiguousarray(ABDS_matrix[3:, 3:]),
+)
+```
+
+The `ABDS_matrix` contains the extensional (A), coupling (B), bending (D), and shear (S) stiffness matrices. For a Mindlin plate, we need both bending and shear stiffness.
+
+## Load Definition and Analysis
+
+Create the point load and solve:
+
+```python
+load_position = np.array(load_position)
+load_value = np.array(load_value)
+
+# set up loads
+loads = LoadGroup(LC=PointLoad(load_position, load_value))
+
+# create evaluation grid
+nx, ny = (150, 200)
+x = np.linspace(0, length_X, nx)
+y = np.linspace(0, length_Y, ny)
+xv, yv = np.meshgrid(x, y)
+evaluation_points = np.stack((xv.flatten(), yv.flatten()), axis=1)
+
+plate = NavierPlate(
+    (length_X, length_Y),
+    (number_of_modes_X, number_of_modes_Y),
+    D=bending_stiffness,
+    S=shear_stiffness,
+)
+
+results = plate.linear_static_analysis(evaluation_points, loads)
+```
+
+We create a regular grid of evaluation points across the plate surface. The solver returns results at all these points.
+
+## Calculating Utilization
+
+Utilization shows how close the stresses are to the yield strength:
+
+```python
+load_case_results = results["LC"].values
+strains = results["LC"].strains
+z = np.linspace(-thickness / 2, thickness / 2, 20)
+rng = (-thickness / 2, thickness / 2)
+util, util_coords = section.utilization(
+    strains=strains, rng=rng, z=z, coords=evaluation_points, return_coords=True
+)
+
+num_XY, num_Z = util_coords.shape[:2]
+util_coords = util_coords.reshape((num_XY * num_Z, 3))
+util = util.values.flatten()
+```
+
+This calculates utilization at 20 points through the thickness, creating a 3D field of utilization values.
+
+## Saving Results
+
+Save the 2D and 3D results to Parquet files:
+
+```python
+from sigmaepsilon.mesh import PointData
+
+file_name = "_00000000000000001"
+
+res2d_parquet_file_path = file_name + "_res2d" + ".parquet"
+pd = PointData(evaluation_points, results=results["LC"].values)
+pd.to_parquet(res2d_parquet_file_path)
+
+res3d_parquet_file_path = file_name + "_res3d" + ".parquet"
+pd = PointData(util_coords, util=util)
+pd.to_parquet(res3d_parquet_file_path)
+
+print("Files saved to destination!")
+```
+
+## Result Interpretation
+
+<Accordion title="Understanding Utilization">
+
+Utilization is the ratio of von Mises stress to yield strength:
+- **< 1.0**: Material is in elastic range (safe)
+- **= 1.0**: Material has reached yield point
+- **> 1.0**: Material has yielded (plastic deformation)
+
+For this example:
+- The concentrated load creates high local stresses near the load point
+- Utilization is maximum at the top and bottom surfaces
+- The load magnitude of -100 in the vertical direction creates bending
+
+</Accordion>
+
+The Parquet files contain:
+- **res2d**: Plate mid-surface results (deflections, rotations, strains, forces)
+- **res3d**: 3D utilization field through the thickness
+
+These can be loaded for visualization or post-processing in other tools.

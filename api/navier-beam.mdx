@@ -1,0 +1,158 @@
+---
+title: NavierBeam
+description: A class for analyzing simply-supported beams using Navier's method
+---
+
+## Overview
+
+The `NavierBeam` class handles simply-supported beams bent in the X-Y plane and solves them using Navier's method. The beam model can be either Euler-Bernoulli or Timoshenko, depending on whether shear stiffness is provided at instantiation.
+
+## Constructor
+
+```python
+NavierBeam(
+    length: float,
+    N: int = 100,
+    *,
+    EI: float,
+    GA: float | None = None,
+    loads: LoadGroupProtocol | None = None
+)
+```
+
+### Parameters
+
+<ParamField path="length" type="float" required>
+  The length of the beam.
+</ParamField>
+
+<ParamField path="N" type="int" default="100">
+  The number of harmonic terms involved in the approximation.
+</ParamField>
+
+<ParamField path="EI" type="float" required>
+  Bending stiffness.
+</ParamField>
+
+<ParamField path="GA" type="float | None" default="None">
+  Shear stiffness. Only for Timoshenko beams. If None, the beam is modeled as Euler-Bernoulli.
+</ParamField>
+
+<ParamField path="loads" type="LoadGroupProtocol | None" default="None">
+  The loads applied to the beam.
+</ParamField>
+
+## Properties
+
+### length
+
+```python
+@property
+def length(self) -> float
+```
+
+The length of the beam. This property is read-write.
+
+### size
+
+```python
+@property
+def size(self) -> float | int
+```
+
+Alias for the length of the beam. This property is read-write.
+
+### shape
+
+```python
+@property
+def shape(self) -> int
+```
+
+The number of harmonic terms involved in the approximation. This property is read-write.
+
+### model_type
+
+```python
+@property
+def model_type(self) -> MechanicalModelType
+```
+
+The mechanical model type of the beam. Returns:
+- `MechanicalModelType.BERNOULLI_EULER_BEAM` if GA is None
+- `MechanicalModelType.TIMOSHENKO_BEAM` if GA is provided
+
+## Methods
+
+### linear_static_analysis
+
+```python
+def linear_static_analysis(
+    self,
+    *args,
+    points: float | Iterable | None = None,
+    loads: LoadGroupProtocol | None = None
+) -> DeepDict[Hashable, DeepDict | BeamLoadCaseResultLinStat]
+```
+
+Performs a linear static analysis and calculates all postprocessing quantities at one or more points.
+
+#### Parameters
+
+<ParamField path="*args" type="LoadGroup, float or Iterable">
+  The loads and the points, in any order.
+</ParamField>
+
+<ParamField path="points" type="float | Iterable | None" default="None">
+  A float or a 1D iterable of coordinates where the results are to be evaluated. If it is a scalar, the resulting dictionary contains 1D arrays for every quantity, for every load case. If there are multiple points, the result attached to a load case is a 2D array, where the first axis goes along the points.
+</ParamField>
+
+<ParamField path="loads" type="LoadGroupProtocol | None" default="None">
+  The loads. If not provided, uses the loads from the beam instance.
+</ParamField>
+
+#### Returns
+
+<ResponseField name="result" type="DeepDict">
+  A dictionary with the same layout as the loads, containing analysis results for each load case.
+</ResponseField>
+
+## Examples
+
+### Euler-Bernoulli Beam
+
+Define an Euler-Bernoulli beam of length 10.0 and bending stiffness 2000.0 with 100 harmonic terms:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam
+
+beam = NavierBeam(10.0, 100, EI=2000.0)
+```
+
+### Timoshenko Beam
+
+Define a Timoshenko beam of length 10.0, bending stiffness 2000.0, and shear stiffness 1500.0 with 100 harmonic terms:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam
+
+beam = NavierBeam(10.0, 100, EI=2000.0, GA=1500.0)
+```
+
+### Linear Static Analysis
+
+Perform a linear static analysis with evaluation points:
+
+```python
+from sigmaepsilon.solid.fourier import NavierBeam, LoadGroup
+import numpy as np
+
+# Create beam
+beam = NavierBeam(length=10.0, N=100, EI=2000.0)
+
+# Define evaluation points
+points = np.linspace(0, 10.0, 50)
+
+# Perform analysis (assuming loads are defined)
+results = beam.linear_static_analysis(points=points)
+```

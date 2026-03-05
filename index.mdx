@@ -1,97 +1,195 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: SigmaEpsilon Solid Fourier
+description: Semi-analytic Fourier solutions for beam and plate bending problems
 ---
 
-## Setting up
+<div className="relative overflow-hidden bg-gradient-to-br from-[#1e40af] via-[#2563eb] to-[#3b82f6] dark:from-[#1e3a8a] dark:via-[#1e40af] dark:to-[#2563eb] py-20">
+  <div className="max-w-6xl mx-auto px-6 lg:px-8">
+    <div className="text-center">
+      <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6">
+        SigmaEpsilon Solid Fourier
+      </h1>
+      <p className="text-lg sm:text-xl text-white/90 max-w-3xl mx-auto mb-8">
+        Fast, accurate semi-analytic solutions for simply-supported beam and plate bending problems using Fourier series approximation.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center flex-wrap">
+        <a
+          href="/quickstart"
+          className="inline-flex items-center px-6 py-3 rounded-lg bg-white text-[#2563eb] font-semibold hover:bg-gray-100 transition-colors no-underline"
+        >
+          Get Started
+        </a>
+        <a
+          href="/api/navier-beam"
+          className="inline-flex items-center px-6 py-3 rounded-lg border border-white/30 bg-white/10 text-white font-semibold hover:bg-white/20 transition-colors no-underline"
+        >
+          API Reference
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Quick Start</h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Get up and running with SigmaEpsilon Solid Fourier in minutes.
+  </p>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+  <Steps>
+    <Step title="Install the package">
+      Install via pip from PyPI:
 
-## Make it yours
+      ```bash
+      pip install sigmaepsilon.solid.fourier
+      ```
 
-Design a docs site that looks great and empowers your users.
+      The library requires Python 3.10, 3.11, or 3.12.
+    </Step>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+    <Step title="Import the core classes">
+      Import the classes you need for your analysis:
 
-## Create beautiful pages
+      ```python
+      from sigmaepsilon.solid.fourier import NavierBeam, NavierPlate
+      from sigmaepsilon.solid.fourier import LoadGroup, PointLoad
+      ```
+    </Step>
 
-Everything you need to create world-class documentation.
+    <Step title="Define and solve a problem">
+      Create a beam or plate, apply loads, and solve:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+      ```python
+      # Create an Euler-Bernoulli beam
+      beam = NavierBeam(length=10.0, N=100, EI=2000.0)
 
-## Need inspiration?
+      # Define a point load at the center
+      loads = LoadGroup(PointLoad(5.0, -100.0))
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+      # Perform linear static analysis
+      results = beam.linear_static_analysis(loads, points=[5.0])
+      
+      # Access results
+      print(f"Deflection: {results['LoadCase-0'].w}")
+      ```
+
+      Learn more in the [Quickstart Guide](/quickstart).
+    </Step>
+  </Steps>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Explore by Topic</h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Dive into the documentation based on what you need to accomplish.
+  </p>
+
+  <CardGroup cols={2}>
+    <Card title="Beam Analysis" icon="minus" href="/guides/beam-analysis">
+      Solve Euler-Bernoulli and Timoshenko beam problems with various load types.
+    </Card>
+    <Card title="Plate Analysis" icon="grid-2" href="/guides/plate-analysis">
+      Analyze Kirchhoff-Love and Uflyand-Mindlin plates with rectangular geometry.
+    </Card>
+    <Card title="Core Concepts" icon="book-open" href="/concepts/overview">
+      Understand the theory behind Navier's method and Fourier series solutions.
+    </Card>
+    <Card title="Load Definition" icon="weight-hanging" href="/guides/load-definition">
+      Learn how to define point, line, rectangular, and disk loads.
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Key Features</h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Why choose SigmaEpsilon Solid Fourier for your structural analysis needs?
+  </p>
+
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="p-6 rounded-xl border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#2563eb] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Fast Computation</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Industry-grade performance based on highly parallel, vectorized code. Significantly faster than FEM for applicable problems.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-xl border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#2563eb] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Multiple Models</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Support for Euler-Bernoulli and Timoshenko beams, plus Kirchhoff-Love and Uflyand-Mindlin plates.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-xl border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#2563eb] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Scientific Python</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Built on NumPy and SciPy with optional xarray integration for labeled, multi-dimensional arrays.
+      </p>
+    </div>
+
+    <div className="p-6 rounded-xl border border-gray-200 dark:border-[#27272a] bg-gray-50 dark:bg-[#1a1d27]">
+      <div className="text-[#2563eb] mb-3">
+        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Well Tested</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        High test coverage on CircleCI ensures reliability. Production-ready code for research and engineering.
+      </p>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Examples</h2>
+  <p className="text-base text-gray-600 dark:text-gray-400 mb-8">
+    Learn by example with real-world use cases and interactive Jupyter notebooks.
+  </p>
+
+  <CardGroup cols={2}>
+    <Card title="Beam Influence Diagrams" icon="chart-line" href="/examples/beam-influence">
+      Generate influence diagrams for beam bending problems.
+    </Card>
+    <Card title="Plate with Concentrated Load" icon="bullseye" href="/examples/plate-concentrated">
+      Analyze a simply-supported plate under point loading.
+    </Card>
+    <Card title="Mindlin vs Kirchhoff" icon="scale-balanced" href="/examples/mindlin-kirchhoff">
+      Compare thick and thin plate theory predictions.
+    </Card>
+    <Card title="Visualization with PyVista" icon="cube" href="/examples/visualization">
+      Create 3D visualizations of plate deformations.
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="p-8 rounded-2xl border border-gray-200 dark:border-[#27272a] bg-gradient-to-br from-gray-50 to-gray-100 dark:from-[#1a1d27] dark:to-[#242838]">
+    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">Ready to get started?</h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 mb-6">
+      Install the library and start solving beam and plate problems in minutes.
+    </p>
+    <a
+      href="/installation"
+      className="inline-flex items-center px-6 py-3 rounded-lg bg-[#2563eb] text-white font-semibold hover:bg-[#1e40af] transition-colors no-underline"
+    >
+      Installation Guide
+    </a>
+  </div>
+</div>

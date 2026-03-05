@@ -1,0 +1,293 @@
+---
+title: 3D Visualization with PyVista
+description: Visualize plate deformations and stress utilization in 3D using PyVista point clouds
+---
+
+# 3D Visualization with PyVista
+
+This example demonstrates how to visualize plate analysis results in 3D using PyVista. We'll create point cloud visualizations of stress utilization through the plate thickness.
+
+## Problem Setup
+
+First, set up a Mindlin plate with multiple load cases:
+
+```python
+import numpy as np
+
+from sigmaepsilon.math.linalg import ReferenceFrame
+from sigmaepsilon.solid.material import MindlinPlateSection as Section
+from sigmaepsilon.solid.material import (
+    ElasticityTensor,
+    LinearElasticMaterial,
+    HuberMisesHenckyFailureCriterion_SP,
+)
+from sigmaepsilon.solid.material.utils import elastic_stiffness_matrix
+from sigmaepsilon.solid.fourier import (
+    NavierPlate,
+    LoadGroup,
+    PointLoad,
+    RectangleLoad,
+)
+
+# geometry
+length_X, length_Y = (600.0, 800.0)
+thickness = 25.0
+
+# material properties
+young_modulus = 2890.0
+poisson_ratio = 0.2
+yield_strength = 2.0
+
+# solution parameters
+number_of_modes_X = 20
+number_of_modes_Y = 20
+```
+
+## Material and Section
+
+Define the material with failure criterion:
+
+```python
+# setting up hooke's law
+hooke = elastic_stiffness_matrix(E=young_modulus, NU=poisson_ratio)
+frame = ReferenceFrame(dim=3)
+stiffness = ElasticityTensor(hooke, frame=frame, tensorial=False)
+failure_model = HuberMisesHenckyFailureCriterion_SP(yield_strength=yield_strength)
+material = LinearElasticMaterial(stiffness=stiffness, failure_model=failure_model)
+
+# section stiffness
+section = Section(
+    layers=[
+        Section.Layer(material=material, thickness=thickness),
+    ]
+)
+ABDS_matrix = section.elastic_stiffness_matrix()
+bending_stiffness, shear_stiffness = (
+    np.ascontiguousarray(ABDS_matrix[:3, :3]),
+    np.ascontiguousarray(ABDS_matrix[3:, 3:]),
+)
+```
+
+## Multiple Load Cases
+
+Set up a hierarchical load group structure:
+
+```python
+# set up loads
+loads = LoadGroup(
+    LG1=LoadGroup(
+        LC1=RectangleLoad([[0, 0], [length_X, length_Y]], [-0.1, 0, 0]),
+        LC2=RectangleLoad(
+            [[length_X / 3, length_Y / 2], [length_X / 2, 2 * length_Y / 3]],
+            [-1, 0, 0],
+        ),
+    ),
+    LG2=LoadGroup(
+        LC3=PointLoad([length_X / 3, length_Y / 2], [-100.0, 0, 0]),
+        LC4=PointLoad([2 * length_X / 3, length_Y / 2], [100.0, 0, 0]),
+    ),
+)
+loads.lock()  # freezes the layout to protect against typos
+```
+
+The hierarchical structure allows:
+- **LG1**: Load group 1 with distributed loads
+  - **LC1**: Uniform load over entire plate
+  - **LC2**: Higher load on partial area
+- **LG2**: Load group 2 with point loads
+  - **LC3**: Downward point load
+  - **LC4**: Upward point load
+
+## Analysis with Evaluation Grid
+
+Create a fine mesh for visualization:
+
+```python
+# nx, ny = (240, 320)  # for higher resolution
+nx, ny = (150, 200)
+x = np.linspace(0, length_X, nx)
+y = np.linspace(0, length_Y, ny)
+xv, yv = np.meshgrid(x, y)
+evaluation_points = np.stack((xv.flatten(), yv.flatten()), axis=1)
+
+plate = NavierPlate(
+    (length_X, length_Y),
+    (number_of_modes_X, number_of_modes_Y),
+    D=bending_stiffness,
+    S=shear_stiffness,
+)
+results = plate.linear_static_analysis(evaluation_points, loads)
+```
+
+For higher quality visualizations, increase `nx` and `ny` to 240 and 320.
+
+## Creating 3D Point Cloud
+
+Calculate utilization through the thickness:
+
+```python
+import pyvista as pv
+
+load_case_results = results["LG1", "LC2"].values
+strains = load_case_results[:, 3:8]
+z = np.linspace(-thickness / 2, thickness / 2, 20)
+rng = (-thickness / 2, thickness / 2)
+util, util_coords = section.utilization(
+    strains=strains, rng=rng, z=z, coords=evaluation_points, return_coords=True
+)
+
+num_XY, num_Z = util_coords.shape[:2]
+util_coords = util_coords.reshape((num_XY * num_Z, 3))
+util = util.values.flatten()
+
+point_cloud = pv.PolyData(util_coords)
+point_cloud["scalars"] = util
+
+point_cloud
+```
+
+This creates:
+- 3D coordinates at 20 levels through thickness
+- Utilization values at each point
+- PyVista PolyData object for rendering
+
+## Rendering with Labels
+
+Create an interactive plot with min/max labels:
+
+```python
+from sigmaepsilon.core.formatting import floatformatter
+
+formatter = floatformatter(sig=3)  # to format strings to 3 significant digits
+
+plotter = pv.Plotter(notebook=True)
+
+scalars = util
+points = util_coords
+max_index = np.argmax(scalars)
+min_index = np.argmin(scalars)
+
+p_min = point_cloud.points[min_index]
+p_max = point_cloud.points[max_index]
+label_coords = np.array([p_min, p_max])
+
+labels = [
+    (
+        f"MIN: {formatter.format(util.min()*100)} %"
+        f"\nX: {formatter.format(points[min_index, 0])}"
+        f"\nY: {formatter.format(points[min_index, 1])}"
+        f"\nZ: {formatter.format(points[min_index, 2])}"
+    ),
+    (
+        f"MAX: {formatter.format(util.max()*100)} %"
+        f"\nX: {formatter.format(points[max_index, 0])}"
+        f"\nY: {formatter.format(points[max_index, 1])}"
+        f"\nZ: {formatter.format(points[max_index, 2])}"
+    ),
+]
+
+plotter.add_mesh(
+    point_cloud,
+    scalars="scalars",
+    cmap="turbo",
+    lighting=False,
+    scalar_bar_args={"title": "Utilization"},
+    render_points_as_spheres=True,
+    opacity="sigmoid",
+)
+
+plotter.add_point_labels(
+    label_coords,
+    labels,
+    point_size=20,
+    font_size=16,
+    always_visible=True,
+    shape_color="grey",
+    shape_opacity=0.6,
+    render_points_as_spheres=True,
+)
+
+plotter.show(jupyter_backend="static")
+```
+
+## Visualization Features
+
+<Accordion title="PyVista Rendering Options">
+
+### Color Mapping
+- **cmap="turbo"**: Perceptually uniform colormap
+- Other options: "viridis", "plasma", "coolwarm"
+- Shows stress distribution intuitively
+
+### Opacity
+- **opacity="sigmoid"**: Variable transparency based on value
+- Highlights high-stress regions
+- Makes low-stress areas more transparent
+
+### Point Rendering
+- **render_points_as_spheres=True**: 3D sphere glyphs
+- Better depth perception than flat points
+- Smoother appearance
+
+### Labels
+- Show exact min/max values and locations
+- **always_visible=True**: Labels never occluded
+- Semi-transparent background for readability
+
+</Accordion>
+
+## Interactive Exploration
+
+In a Jupyter notebook, the PyVista plot is interactive:
+- **Rotate**: Click and drag to rotate view
+- **Zoom**: Scroll wheel to zoom in/out
+- **Pan**: Shift + click and drag to pan
+- **Reset**: Press 'r' to reset camera
+
+For static rendering (e.g., in documentation), use `jupyter_backend="static"`.
+
+## Accessing Different Load Cases
+
+Visualize results from different load combinations:
+
+```python
+# Uniform load only
+load_case_results = results["LG1", "LC1"].values
+
+# Point loads
+load_case_results = results["LG2", "LC3"].values
+
+# Combined loads (if you set up load combinations)
+# load_case_results = results["combined"].values
+```
+
+Each load case can be visualized separately to understand its contribution to the overall response.
+
+## Advanced: Mesh Generation
+
+For surface rendering instead of point clouds, create a triangulated mesh:
+
+```python
+# Extract surface coordinates
+surface_points = evaluation_points
+UZ = results["LG1", "LC2"].to_xarray().sel(component="UZ").values
+
+# Create deformed coordinates
+deformed_coords = np.column_stack([
+    surface_points[:, 0],
+    surface_points[:, 1],
+    UZ * 10  # scale factor for visibility
+])
+
+# Create structured grid
+grid = pv.StructuredGrid()
+grid.points = deformed_coords.reshape((ny, nx, 3))
+grid.dimensions = [nx, ny, 1]
+
+# Plot as surface
+plotter = pv.Plotter()
+plotter.add_mesh(grid, scalars=UZ.flatten(), cmap="turbo", show_edges=True)
+plotter.show(jupyter_backend="static")
+```
+
+This creates a continuous surface showing the deformed plate shape, useful for understanding overall deflection patterns.

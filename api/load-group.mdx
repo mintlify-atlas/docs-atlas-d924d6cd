@@ -1,0 +1,190 @@
+---
+title: LoadGroup & LoadCase
+description: Organize and manage load cases in groups
+---
+
+## LoadGroup
+
+A class to handle load groups for Navier's semi-analytic solution of rectangular plates and beams with specific boundary conditions.
+
+`LoadGroup` inherits from `DeepDict`, allowing hierarchical organization of loads and load groups.
+
+### Constructor
+
+```python
+LoadGroup(*args, cooperative: bool = False, **kwargs)
+```
+
+<ParamField path="cooperative" type="bool" default="False">
+  Whether load cases in this group can interact with each other.
+</ParamField>
+
+<ParamField path="**kwargs" type="dict">
+  Keyword arguments define nested groups or load cases.
+</ParamField>
+
+### Properties
+
+<ParamField path="cooperative" type="bool">
+  Returns `True` if the load cases of this group can interact.
+</ParamField>
+
+### Methods
+
+#### groups()
+
+Returns a generator object that yields all the subgroups.
+
+```python
+groups(
+    *,
+    inclusive: Optional[bool] = False,
+    blocktype: Optional[Any] = None,
+    deep: Optional[bool] = True
+) -> Iterable[LoadGroupProtocol]
+```
+
+<ParamField path="inclusive" type="bool" default="False">
+  If `True`, returns the object the call is made upon.
+</ParamField>
+
+<ParamField path="blocktype" type="Any" default="None">
+  The type of the load groups to return. Default is `None`, which returns all types.
+</ParamField>
+
+<ParamField path="deep" type="bool" default="True">
+  If `True`, all deep groups are returned separately.
+</ParamField>
+
+#### cases()
+
+Returns a generator that yields the load cases in the group.
+
+```python
+cases(
+    case_type: Any = None
+) -> Iterable[LoadCaseProtocol]
+```
+
+<ParamField path="case_type" type="Any" default="None">
+  The type of the load cases to return. Default is `None`, which returns all types.
+</ParamField>
+
+### Usage Example
+
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, PointLoad
+
+# Create hierarchical load organization
+loads = LoadGroup(
+    group1 = LoadGroup(
+        case1 = PointLoad(x=L/3, v=[1.0, 0.0]),
+        case2 = PointLoad(x=L/3, v=[0.0, 1.0]),
+    ),
+    group2 = LoadGroup(
+        case1 = PointLoad(x=2*L/3, v=[1.0, 0.0]),
+        case2 = PointLoad(x=2*L/3, v=[0.0, 1.0]),
+    ),
+)
+
+# Access specific cases using tuple keys
+case = loads['group1', 'case1']
+
+# Iterate through all groups
+for group in loads.groups():
+    print(group)
+
+# Iterate through all cases
+for case in loads.cases():
+    print(case)
+
+# Lock the layout to prevent accidental modifications
+loads.lock()
+```
+
+### When to Use LoadGroup
+
+- **Organize multiple load scenarios**: Group related load cases together for different loading conditions
+- **Hierarchical structure**: Create nested groups to represent complex loading patterns
+- **Analysis variants**: Separate load cases by design variants, load combinations, or analysis types
+
+---
+
+## LoadCase
+
+Generic base class for all load cases. All specific load types (PointLoad, LineLoad, etc.) inherit from this class.
+
+### Constructor
+
+```python
+LoadCase(
+    domain: LoadDomainType,
+    value: LoadValueType,
+    num_mc: int | None = None
+)
+```
+
+<ParamField path="domain" type="LoadDomainType">
+  The domain of the load. Type varies by load case:
+  - **PointLoad**: `float` (beam) or `Iterable[float]` (plate)
+  - **LineLoad**: `Iterable[float]` (beam) or `Iterable[Iterable[float]]` (plate)
+  - **RectangleLoad**: `Iterable[Iterable[float]]` (two points defining rectangle)
+  - **DiskLoad**: `tuple[tuple[float, float], float]` (center coordinates and radius)
+</ParamField>
+
+<ParamField path="value" type="LoadValueType">
+  The value of the load. Type varies by problem type:
+  - **Beam**: `[F, M]` (force and moment)
+  - **Plate**: `[F, Mx, My]` (force and moments)
+</ParamField>
+
+<ParamField path="num_mc" type="int | None" default="None">
+  The number of sampling points for Monte Carlo integration. If no value is provided, the global config value is used.
+</ParamField>
+
+### Properties
+
+<ParamField path="domain" type="LoadDomainType">
+  Returns or sets the domain of the load.
+</ParamField>
+
+<ParamField path="value" type="LoadValueType">
+  Returns or sets the value of the load.
+</ParamField>
+
+### Methods
+
+#### rhs()
+
+Returns the right-hand side coefficients for the Fourier series expansion.
+
+```python
+rhs(problem: NavierProblemProtocol) -> ndarray
+```
+
+<ParamField path="problem" type="NavierProblemProtocol">
+  A problem the coefficients are generated for.
+</ParamField>
+
+**Returns**: 2D NumPy array of shape `(H, 3)`, where `H` is the total number of harmonic terms.
+
+#### eval_approx()
+
+Evaluates the Fourier series approximation of the load at the given points.
+
+```python
+eval_approx(
+    problem: NavierProblemProtocol,
+    points: Iterable
+) -> ndarray
+```
+
+<ParamField path="problem" type="NavierProblemProtocol">
+  The problem containing the Fourier series configuration.
+</ParamField>
+
+<ParamField path="points" type="Iterable">
+  Points where the load should be evaluated.
+</ParamField>
+
+**Returns**: 1D NumPy array with the same length as the number of points.

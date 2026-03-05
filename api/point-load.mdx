@@ -1,0 +1,127 @@
+---
+title: PointLoad
+description: Concentrated loads at specific points
+---
+
+## PointLoad
+
+A class to handle concentrated loads at specific points. Supports both beam (1D) and plate (2D) problems.
+
+### Constructor
+
+```python
+PointLoad(
+    domain: float | Iterable[float],
+    value: Iterable[float],
+    num_mc: int | None = None
+)
+```
+
+<ParamField path="domain" type="float | Iterable[float]">
+  The point of application:
+  - **Beam (1D)**: A scalar value representing the position along the beam
+  - **Plate (2D)**: An iterable of length 2 `[x, y]` representing the coordinates
+</ParamField>
+
+<ParamField path="value" type="Iterable[float]">
+  Load values for each degree of freedom:
+  - **Beam (1D)**: `[F, M]` where:
+    - `F` = Force
+    - `M` = Moment
+  - **Plate (2D)**: `[F, Mx, My]` where:
+    - `F` = Force in z-direction
+    - `Mx` = Moment about x-axis
+    - `My` = Moment about y-axis
+</ParamField>
+
+<ParamField path="num_mc" type="int | None" default="None">
+  The number of sampling points for Monte Carlo integration. If no value is provided, the global config value is used.
+</ParamField>
+
+### Methods
+
+#### rhs()
+
+Returns the coefficients as a NumPy array.
+
+```python
+rhs(problem: NavierProblemProtocol) -> ndarray
+```
+
+<ParamField path="problem" type="NavierProblemProtocol">
+  A problem the coefficients are generated for.
+</ParamField>
+
+**Returns**: 2D float array of shape `(H, 3)`, where `H` is the total number of harmonic terms involved (defined for the problem).
+
+### Coordinate Systems and Conventions
+
+<Info>
+  For a detailed explanation of the sign conventions, refer to the [sign conventions](/concepts/loads) section of the theory guide.
+</Info>
+
+### Usage Examples
+
+#### Beam Point Load
+
+```python
+from sigmaepsilon.solid.fourier import PointLoad, NavierProblem
+
+# Apply a vertical force of 100 N at x = 2.5 m
+load = PointLoad(
+    domain=2.5,      # Position along beam
+    value=[100, 0]   # [Force, Moment]
+)
+
+# Apply a moment of 50 Nm at x = 1.0 m
+moment_load = PointLoad(
+    domain=1.0,
+    value=[0, 50]
+)
+```
+
+#### Plate Point Load
+
+```python
+from sigmaepsilon.solid.fourier import PointLoad
+
+# Apply a concentrated force at the center of a plate
+L_x, L_y = 4.0, 3.0  # Plate dimensions
+
+load = PointLoad(
+    domain=[L_x/2, L_y/2],  # Center of plate
+    value=[1000, 0, 0]       # [Force, Mx, My]
+)
+
+# Apply a twisting moment at a corner
+twist_load = PointLoad(
+    domain=[0.5, 0.5],
+    value=[0, 100, 100]  # Equal moments about both axes
+)
+```
+
+#### Using with LoadGroup
+
+```python
+from sigmaepsilon.solid.fourier import LoadGroup, PointLoad
+
+L = 10.0  # Beam length
+
+# Create multiple point loads at different locations
+loads = LoadGroup(
+    left_support = PointLoad(domain=L/4, value=[500, 0]),
+    center = PointLoad(domain=L/2, value=[1000, 0]),
+    right_support = PointLoad(domain=3*L/4, value=[500, 0])
+)
+```
+
+### When to Use PointLoad
+
+- **Concentrated forces**: When load is applied at a specific point rather than distributed
+- **Support reactions**: Representing known reaction forces at supports
+- **Discrete moments**: Applying bending or twisting moments at specific locations
+- **Idealized loads**: Simplifying complex loads as concentrated forces for initial analysis
+
+<Warning>
+  Point loads create theoretical stress concentrations. In real structures, loads are always distributed over some area. Use point loads for preliminary analysis and idealized models.
+</Warning>
